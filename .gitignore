@@ -35,6 +35,9 @@ env/
 # Model checkpoints and weights
 # =========================
 *.pt
+!model_v2/runs/E1_gpf_multi_pooled_s42/best.pt
+!model_v2/runs/E1_gpf_multi_pooled_s123/best.pt
+!model_v2/runs/E1_gpf_multi_pooled_s2026/best.pt
 *.pth
 *.ckpt
 *.onnx

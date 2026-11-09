@@ -1,0 +1,94 @@
+# Created by pytest automatically.
+
+
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# =========================
+# Virtual environments
+# =========================
+venv/
+.venv/
+env/
+
+# =========================
+# Secrets and environment files
+# =========================
+.env
+.env.*
+!.env.example
+!.env.template
+
+# =========================
+# Model checkpoints and weights
+# =========================
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+*.joblib
+*.pkl
+
+# =========================
+# Training outputs
+# =========================
+lightning_logs/
+wandb/
+tensorboard/
+runs/*/last.pt
+runs/*/best.pt
+
+# Keep model configuration and metadata
+!model_v2/manifests/*.json
+!model_v2/runs/*/config.json
+!model_v2/runs/*/final.json
+
+# =========================
+# Datasets and generated predictions
+# =========================
+data_raw/
+datasets/
+*.edf
+*.csv
+*.parquet
+*.npz
+
+# =========================
+# Frontend
+# =========================
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+yarn-debug.log*
+
+# =========================
+# Android / Gradle
+# =========================
+.gradle/
+**/build/
+local.properties
+*.iml
+.idea/
+.cxx/
+.externalNativeBuild/
+
+# =========================
+# OS and editor
+# =========================
+.DS_Store
+Thumbs.db
+.vscode/

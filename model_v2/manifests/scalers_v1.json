@@ -1,0 +1,17 @@
+{
+ "version": "scalers_v1",
+ "glucose": {
+  "mean": 159.92711066492896,
+  "std": 63.56237381796872,
+  "n": 3537225
+ },
+ "event_caps": {
+  "bolus_u": 14.899999618530273,
+  "basal_uh": 3.5999999046325684,
+  "carb_g": 95.0
+ },
+ "manifest_sha256": "a2a42bb2108835cc19b8b97fcacb44e9e30d75ff138aa408de67cb71f24099e5",
+ "n_train_patients": 173,
+ "rule": "fitted on split=='train' patients only; events scaled by x/cap",
+ "created": "2026-11-02 05:35:05"
+}

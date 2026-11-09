@@ -1,0 +1,53 @@
+<resources>
+    <string name="app_name">GlucoseTransmitter</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">GlucoseTransmitter</string>
+    <string name="dashboard_subtitle">GPFormer BLE Peripheral</string>
+    <string name="label_ble_status">BLE Status</string>
+    <string name="label_connection">Connection</string>
+    <string name="label_mode">Mode</string>
+    <string name="label_readings_count">Readings</string>
+    <string name="label_transfer_status">Transfer</string>
+
+    <!-- Advertising status labels -->
+    <string name="status_advertising">Advertising ✓</string>
+    <string name="status_not_advertising">Not Advertising</string>
+    <string name="status_error">Error</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_manual">Manual Entry</string>
+    <string name="status_simulating">Simulating</string>
+
+    <!-- Manual Entry -->
+    <string name="section_manual_entry">Manual Glucose Entry</string>
+    <string name="hint_glucose_value">Glucose value (mg/dL)</string>
+    <string name="btn_add_reading">Add Reading</string>
+
+    <!-- Simulation -->
+    <string name="section_simulation">Simulation Mode</string>
+    <string name="label_interval">Interval (seconds):</string>
+    <string name="btn_start_simulation">Start Simulation</string>
+    <string name="btn_stop_simulation">Stop Simulation</string>
+
+    <!-- History -->
+    <string name="section_history">Reading History (Latest 24)</string>
+    <string name="btn_send_history">Send Initial History</string>
+    <string name="btn_seed_history">Seed 24 Readings</string>
+    <string name="btn_clear_history">Clear History</string>
+
+    <!-- Bluetooth -->
+    <string name="section_bluetooth">Bluetooth LE</string>
+    <string name="btn_start_advertising">Start Advertising</string>
+    <string name="btn_stop_advertising">Stop Advertising</string>
+    <string name="label_hw_support">Hardware</string>
+    <string name="status_hw_supported">BLE Peripheral Supported ✓</string>
+    <string name="status_hw_not_supported">BLE Peripheral NOT Supported ✗</string>
+    <string name="label_ack_status">Acknowledgement</string>
+    <string name="status_no_ack">Awaiting…</string>
+
+    <!-- Errors -->
+    <string name="error_ble_unsupported">This device does not support BLE Peripheral mode (GATT Server). The app cannot transmit glucose data via Bluetooth.</string>
+    <string name="error_bt_disabled">Bluetooth is turned off. Please enable Bluetooth in system settings.</string>
+    <string name="error_permissions_denied">Bluetooth permissions were denied. The app needs these to advertise and communicate with your laptop.</string>
+</resources>

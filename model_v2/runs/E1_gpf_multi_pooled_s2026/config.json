@@ -1,0 +1,25 @@
+{
+ "args": {
+  "run": "E1_gpf_multi_pooled_s2026",
+  "model": "gpformer",
+  "mode": "multimodal",
+  "sampling": "pooled",
+  "hupa_share": 0.5,
+  "moddrop": 0.3,
+  "low_w": 2.0,
+  "lam": 0.5,
+  "lr": 0.0005,
+  "epochs": 20,
+  "steps": 300,
+  "bs": 128,
+  "patience": 5,
+  "seed": 2026,
+  "residual": 1,
+  "selftest": false
+ },
+ "scalers_sha": "75dd38bb4531a998",
+ "split_sha": "a2a42bb2108835cc",
+ "torch": "2.11.0+cu130",
+ "gpu": "Tesla T4",
+ "params": 2445800
+}

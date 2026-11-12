@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import math
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Any
@@ -93,6 +94,11 @@ class E1InferenceService:
     - scalers_v1.json normalization
     - frozen_eval_v1.json risk thresholds and uncertainty band calibration
     - multimodal (CGM + insulin + carbs) and CGM-only inference
+
+    Three-state channel semantics:
+      - None   => channel NOT AVAILABLE (value=0, mask=0)
+      - []     => channel available, no events (value=0, mask=1)
+      - [...]  => channel available with events (values summed/carry-fwd, mask=1 where events exist)
     """
     def __init__(self):
         os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -133,28 +139,52 @@ class E1InferenceService:
 
         self._is_loaded = True
 
+    # def is_ready(self) -> bool:
+    #     return self._is_loaded and len(self.models) == 3
+    def warmup(self):
+        """Ensure the E1 ensemble is loaded before serving requests."""
+        if not self.is_ready():
+            self.load_artifacts()
+
+        if not self.is_ready():
+            raise RuntimeError("E1 GPFormer ensemble failed to load.")
+
+        print("[INFO] E1 Multimodal GPFormer 3-seed ensemble is ready.")
+
     def is_ready(self) -> bool:
         return self._is_loaded and len(self.models) == 3
-
+        
     def preprocess(
         self,
         readings: list[float],
         latest_dt: datetime,
+        bolus_events: Optional[list[dict]] = None,
+        basal_events: Optional[list[dict]] = None,
+        carb_events: Optional[list[dict]] = None,
+        # Backward compat: insulin_events treated as bolus_events
         insulin_events: Optional[list[dict]] = None,
-        carb_events: Optional[list[dict]] = None
-    ) -> tuple[np.ndarray, str]:
+    ) -> tuple[np.ndarray, str, list[str]]:
         """
         Builds the (1, 24, 9) feature tensor using the exact training-time preprocessing:
         0: glucose (scaled by (g - mu) / sd)
         1: sin_tod (sin of time-of-day in minutes)
         2: cos_tod (cos of time-of-day in minutes)
         3: bolus (clip(bolus / cap, 0, 3.0))
-        4: basal (clip(basal / cap, 0, 3.0))
+        4: basal (clip(basal / cap, 0, 3.0)) - carry-forward logic
         5: carb (clip(carb / cap, 0, 3.0))
-        6: m_bolus (1.0 if present, else 0.0)
-        7: m_basal (1.0 if present, else 0.0)
-        8: m_carb (1.0 if present, else 0.0)
+        6: m_bolus (1.0 if channel available, 0.0 if NOT AVAILABLE)
+        7: m_basal (1.0 if channel available, 0.0 if NOT AVAILABLE)
+        8: m_carb  (1.0 if channel available, 0.0 if NOT AVAILABLE)
+
+        Three-state channel semantics:
+          - None   => NOT AVAILABLE: value=0, mask=0
+          - []     => AVAILABLE, no events: value=0, mask=1 (all slots)
+          - [...]  => AVAILABLE with events: values filled, mask=1 where event present (or globally if available)
         """
+        # Backward compat: if only insulin_events is passed, treat it as bolus_events
+        if bolus_events is None and insulin_events is not None:
+            bolus_events = insulin_events
+
         if len(readings) != IN_LEN:
             raise ValueError(f"E1 GPFormer requires exactly {IN_LEN} readings, got {len(readings)}.")
 
@@ -179,62 +209,115 @@ class E1InferenceService:
         x[0, :, 1] = np.sin(ang)
         x[0, :, 2] = np.cos(ang)
 
-        has_events = False
-
-        # Optional multimodal event aggregation into 15-minute buckets
-        def find_bucket(event_dt: datetime) -> Optional[int]:
+        def find_bolus_bucket(event_dt: datetime) -> Optional[int]:
+            """
+            Find the slot for a bolus/carb event.
+            Uses ceil logic: event at 12:07 -> slot at 12:15 (first slot AT OR AFTER event time).
+            Equivalent to: idx = ceil(diff_mins / 15)
+            """
             diff_mins = (event_dt - start_dt).total_seconds() / 60.0
-            idx = int(round(diff_mins / 15.0))
+            idx = math.ceil(diff_mins / 15.0)
             if 0 <= idx < IN_LEN:
                 return idx
             return None
 
-        if insulin_events:
-            for ev in insulin_events:
+        # --- Bolus channel (3) and m_bolus mask (6) ---
+        if bolus_events is None:
+            # NOT AVAILABLE: value=0, mask=0 (already zero from np.zeros)
+            pass
+        else:
+            # AVAILABLE: set mask=1 for all slots initially; then overwrite with event values
+            x[0, :, 6] = 1.0  # m_bolus = 1 for all slots (channel available)
+            for ev in bolus_events:
                 try:
                     ts_str = ev.get("timestamp")
                     if not ts_str:
                         continue
                     edt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                    b_idx = find_bucket(edt)
+                    b_idx = find_bolus_bucket(edt)
                     if b_idx is not None:
-                        # Check bolus vs basal
                         units = float(ev.get("units", ev.get("value", 0.0)))
-                        ev_type = str(ev.get("type", "bolus")).lower()
-                        if "basal" in ev_type:
-                            x[0, b_idx, 4] += units
-                            x[0, b_idx, 7] = 1.0 # m_basal
-                        else:
-                            x[0, b_idx, 3] += units
-                            x[0, b_idx, 6] = 1.0 # m_bolus
-                        has_events = True
+                        x[0, b_idx, 3] += units
                 except Exception:
                     continue
+            # Scale and clip bolus channel
+            x[0, :, 3] = np.clip(x[0, :, 3] / caps["bolus_u"], 0.0, EVENT_CLIP)
 
-        if carb_events:
+        # --- Basal channel (4) and m_basal mask (7) with carry-forward logic ---
+        if basal_events is None:
+            # NOT AVAILABLE: value=0, mask=0 (already zero from np.zeros)
+            pass
+        else:
+            # AVAILABLE: set mask=1 for all slots initially
+            x[0, :, 7] = 1.0  # m_basal = 1 for all slots (channel available)
+            if basal_events:
+                # Parse all basal events into (datetime, rate) tuples
+                parsed_basal = []
+                for ev in basal_events:
+                    try:
+                        ts_str = ev.get("timestamp")
+                        if not ts_str:
+                            continue
+                        edt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                        rate = float(ev.get("rate", 0.0))
+                        parsed_basal.append((edt, rate))
+                    except Exception:
+                        continue
+
+                # Sort by time
+                parsed_basal.sort(key=lambda t: t[0])
+
+                # Carry-forward: for each slot, find the latest basal event at or before slot time
+                # Also check events up to 24h before the window start
+                cutoff = start_dt - timedelta(hours=24)
+                for i, slot_dt in enumerate(step_dts):
+                    # Find the latest event with edt <= slot_dt and edt >= cutoff
+                    best_rate = None
+                    for edt, rate in parsed_basal:
+                        if edt <= slot_dt and edt >= cutoff:
+                            best_rate = rate
+                        elif edt > slot_dt:
+                            break
+                    if best_rate is not None:
+                        x[0, i, 4] = best_rate
+
+                # Scale and clip basal channel
+                x[0, :, 4] = np.clip(x[0, :, 4] / caps["basal_uh"], 0.0, EVENT_CLIP)
+
+        # --- Carb channel (5) and m_carb mask (8) ---
+        if carb_events is None:
+            # NOT AVAILABLE: value=0, mask=0 (already zero from np.zeros)
+            pass
+        else:
+            # AVAILABLE: set mask=1 for all slots initially
+            x[0, :, 8] = 1.0  # m_carb = 1 for all slots (channel available)
             for ev in carb_events:
                 try:
                     ts_str = ev.get("timestamp")
                     if not ts_str:
                         continue
                     edt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                    b_idx = find_bucket(edt)
+                    b_idx = find_bolus_bucket(edt)
                     if b_idx is not None:
                         carbs = float(ev.get("carbs", ev.get("grams", ev.get("value", 0.0))))
                         x[0, b_idx, 5] += carbs
-                        x[0, b_idx, 8] = 1.0 # m_carb
-                        has_events = True
                 except Exception:
                     continue
-
-        if has_events:
-            # Scale and clip event channels
-            x[0, :, 3] = np.clip(x[0, :, 3] / caps["bolus_u"], 0.0, EVENT_CLIP)
-            x[0, :, 4] = np.clip(x[0, :, 4] / caps["basal_uh"], 0.0, EVENT_CLIP)
+            # Scale and clip carb channel
             x[0, :, 5] = np.clip(x[0, :, 5] / caps["carb_g"], 0.0, EVENT_CLIP)
-            mode = "E1"
-        else:
-            mode = "E1_cgmonly"
+
+        # Determine mode
+        any_available = (bolus_events is not None or basal_events is not None or carb_events is not None)
+        mode = "E1" if any_available else "E1_cgmonly"
+
+        # Build inputs_used list
+        inputs_used = ["glucose", "time"]
+        if bolus_events is not None:
+            inputs_used.append("bolus")
+        if basal_events is not None:
+            inputs_used.append("basal")
+        if carb_events is not None:
+            inputs_used.append("carbs")
 
         return x, mode
 
@@ -243,13 +326,37 @@ class E1InferenceService:
         self,
         readings: list[float],
         latest_dt: datetime,
+        bolus_events: Optional[list[dict]] = None,
+        basal_events: Optional[list[dict]] = None,
+        carb_events: Optional[list[dict]] = None,
+        # Backward compat: insulin_events treated as bolus_events
         insulin_events: Optional[list[dict]] = None,
-        carb_events: Optional[list[dict]] = None
     ) -> dict[str, Any]:
         """
         Executes the 3-model ensemble inference and applies frozen calibration.
+
+        Three-state channel semantics for bolus_events, basal_events, carb_events:
+          - None   => NOT AVAILABLE (value=0, mask=0)
+          - []     => AVAILABLE, no events (value=0, mask=1 for all slots)
+          - [...]  => AVAILABLE with events
         """
-        x_np, mode = self.preprocess(readings, latest_dt, insulin_events, carb_events)
+        # Backward compat
+        if bolus_events is None and insulin_events is not None:
+            bolus_events = insulin_events
+
+        x_np, mode = self.preprocess(
+            readings, latest_dt,
+            bolus_events=bolus_events,
+            basal_events=basal_events,
+            carb_events=carb_events
+        )
+        inputs_used = ["glucose", "time"]
+        if bolus_events is not None:
+            inputs_used.append("bolus")
+        if basal_events is not None:
+            inputs_used.append("basal")
+        if carb_events is not None:
+            inputs_used.append("carbs")
         x_tensor = torch.from_numpy(x_np).to(self.device)
 
         q_list = []
@@ -374,6 +481,7 @@ class E1InferenceService:
 
         return {
             "mode": mode,
+            "inputs_used": inputs_used,
             "forecast": forecast_steps,
             "clinical_alert": {
                 "status": worst_alert_status,

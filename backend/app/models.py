@@ -10,6 +10,10 @@ class InsulinEventItem(BaseModel):
     units: float = Field(..., description="Insulin units (bolus or basal rate)")
     type: Optional[str] = Field("bolus", description="'bolus' or 'basal'")
 
+class BasalEventItem(BaseModel):
+    timestamp: str = Field(..., description="ISO 8601 timestamp of basal rate record")
+    rate: float = Field(..., description="Basal rate in U/h")
+
 class CarbEventItem(BaseModel):
     timestamp: str = Field(..., description="ISO 8601 timestamp of carbohydrate intake")
     carbs: float = Field(..., description="Carbohydrates in grams")
@@ -32,12 +36,20 @@ class PredictRequest(BaseModel):
         description="Alternative alias for 'experiment' (e.g. 'e1_gpformer')."
     )
     insulin_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(
-        default_factory=list,
-        description="Optional insulin events for multimodal forecasting."
+        default=None,
+        description="Alias for bolus_events (backward compatibility). None = channel not available."
+    )
+    bolus_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(
+        default=None,
+        description="Bolus insulin events. None = not available, [] = available with no events."
+    )
+    basal_events: Optional[list[Union[dict, BasalEventItem]]] = Field(
+        default=None,
+        description="Basal rate records. None = not available."
     )
     carb_events: Optional[list[Union[dict, CarbEventItem]]] = Field(
-        default_factory=list,
-        description="Optional carbohydrate events for multimodal forecasting."
+        default=None,
+        description="Carbohydrate events. None = not available, [] = available with no events."
     )
 
 class ForecastV1Request(BaseModel):
@@ -47,8 +59,23 @@ class ForecastV1Request(BaseModel):
         description="24 chronological glucose readings, either as numbers or objects with glucose and timestamp."
     )
     latest_timestamp: Optional[str] = Field(None, description="ISO 8601 timestamp for the 24th reading")
-    insulin_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(default_factory=list)
-    carb_events: Optional[list[Union[dict, CarbEventItem]]] = Field(default_factory=list)
+    # Backward-compat alias: insulin_events treated as bolus_events
+    insulin_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(
+        default=None,
+        description="Alias for bolus_events (backward compatibility). None = channel not available."
+    )
+    bolus_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(
+        default=None,
+        description="Bolus insulin events. None = not available, [] = available with no events."
+    )
+    basal_events: Optional[list[Union[dict, BasalEventItem]]] = Field(
+        default=None,
+        description="Basal rate records. None = not available."
+    )
+    carb_events: Optional[list[Union[dict, CarbEventItem]]] = Field(
+        default=None,
+        description="Carbohydrate events. None = not available, [] = available with no events."
+    )
 
 class QuantileDict(BaseModel):
     q10: float
@@ -97,6 +124,7 @@ class PredictResponse(BaseModel):
     experiment: str
     experiment_description: str
     mode: Optional[str] = "cgm_only"
+    inputs_used: list[str] = Field(default_factory=list, description="List of input channels used")
     units: str = "mg/dL"
     input_summary: InputSummary
     forecast: list[ForecastStep]
@@ -119,6 +147,7 @@ class ForecastV1Response(BaseModel):
     mode: str
     units: str = "mg/dL"
     input_summary: InputSummary
+    inputs_used: list[str] = Field(default_factory=list, description="List of input channels used (e.g. ['glucose','time','bolus','carbs'])")
     forecast_30m: Optional[float] = None
     forecast_60m: Optional[float] = None
     forecast_90m: Optional[float] = None

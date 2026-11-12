@@ -1,5 +1,5 @@
 import math
-from typing import Any
+from typing import Any, Optional
 from datetime import datetime
 from fastapi import HTTPException
 from .config import settings
@@ -125,4 +125,163 @@ def validate_input_sequence(readings: list[Any], latest_timestamp_str: str | Non
 
     return validated_readings, parsed_dt
 
-    return validated_readings, parsed_dt
+
+def _parse_event_timestamp(ts_str: str) -> datetime:
+    """Parse an ISO 8601 timestamp string to a naive datetime."""
+    return datetime.fromisoformat(str(ts_str).replace("Z", "+00:00")).replace(tzinfo=None)
+
+
+def validate_multimodal_events(
+    bolus_events: Optional[list],
+    basal_events: Optional[list],
+    carb_events: Optional[list],
+    latest_dt: datetime
+) -> tuple[Optional[list[dict]], Optional[list[dict]], Optional[list[dict]], list[str], str]:
+    """
+    Validate and normalize bolus, basal, and carb event lists.
+
+    Three-state semantics:
+      - None   => channel NOT AVAILABLE
+      - []     => channel available, no events
+      - [...]  => channel available with events
+
+    Returns:
+        (validated_bolus, validated_basal, validated_carbs, inputs_used, mode)
+    """
+    # Strip timezone for naive comparison
+    latest_naive = latest_dt.replace(tzinfo=None) if latest_dt.tzinfo else latest_dt
+
+    def _coerce_list(events):
+        """Convert Pydantic models in list to plain dicts."""
+        if events is None:
+            return None
+        return [ev.model_dump() if hasattr(ev, "model_dump") else dict(ev) for ev in events]
+
+    bolus_events = _coerce_list(bolus_events)
+    basal_events = _coerce_list(basal_events)
+    carb_events = _coerce_list(carb_events)
+
+    # Validate bolus events
+    validated_bolus = None
+    if bolus_events is not None:
+        validated_bolus = []
+        for ev in bolus_events:
+            ts_str = ev.get("timestamp")
+            if not ts_str:
+                continue
+            try:
+                edt = _parse_event_timestamp(ts_str)
+            except (ValueError, TypeError) as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "InvalidEventTimestamp",
+                        "message": f"Could not parse bolus event timestamp '{ts_str}': {e}"
+                    }
+                )
+            if edt > latest_naive:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "FutureDatedEvent",
+                        "message": f"Bolus event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."
+                    }
+                )
+            units = float(ev.get("units", ev.get("value", 0.0)))
+            if units < 0 or units > 40:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "InvalidBolusUnits",
+                        "message": f"Bolus units {units} is outside the valid range [0, 40] U."
+                    }
+                )
+            validated_bolus.append({**ev, "units": units})
+
+    # Validate basal events
+    validated_basal = None
+    if basal_events is not None:
+        validated_basal = []
+        for ev in basal_events:
+            ts_str = ev.get("timestamp")
+            if not ts_str:
+                continue
+            try:
+                edt = _parse_event_timestamp(ts_str)
+            except (ValueError, TypeError) as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "InvalidEventTimestamp",
+                        "message": f"Could not parse basal event timestamp '{ts_str}': {e}"
+                    }
+                )
+            if edt > latest_naive:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "FutureDatedEvent",
+                        "message": f"Basal event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."
+                    }
+                )
+            rate = float(ev.get("rate", 0.0))
+            if rate < 0 or rate > 5:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "InvalidBasalRate",
+                        "message": f"Basal rate {rate} U/h is outside the valid range [0, 5] U/h."
+                    }
+                )
+            validated_basal.append({**ev, "rate": rate})
+
+    # Validate carb events
+    validated_carbs = None
+    if carb_events is not None:
+        validated_carbs = []
+        for ev in carb_events:
+            ts_str = ev.get("timestamp")
+            if not ts_str:
+                continue
+            try:
+                edt = _parse_event_timestamp(ts_str)
+            except (ValueError, TypeError) as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "InvalidEventTimestamp",
+                        "message": f"Could not parse carb event timestamp '{ts_str}': {e}"
+                    }
+                )
+            if edt > latest_naive:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "FutureDatedEvent",
+                        "message": f"Carb event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."
+                    }
+                )
+            carbs = float(ev.get("carbs", ev.get("grams", ev.get("value", 0.0))))
+            if carbs < 0 or carbs > 370:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "InvalidCarbAmount",
+                        "message": f"Carb amount {carbs} g is outside the valid range [0, 370] g."
+                    }
+                )
+            validated_carbs.append({**ev, "carbs": carbs})
+
+    # Determine mode and inputs_used
+    any_events = (validated_bolus is not None or validated_basal is not None or validated_carbs is not None)
+    mode = "E1" if any_events else "E1_cgmonly"
+
+    inputs_used = ["glucose", "time"]
+    if validated_bolus is not None:
+        inputs_used.append("bolus")
+    if validated_basal is not None:
+        inputs_used.append("basal")
+    if validated_carbs is not None:
+        inputs_used.append("carbs")
+
+    return validated_bolus, validated_basal, validated_carbs, inputs_used, mode

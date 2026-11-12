@@ -1,0 +1,310 @@
+{
+  "status": "success",
+  "model_id": "e1_gpformer",
+  "model_name": "E1 Multimodal GPFormer (3-Seed Ensemble)",
+  "mode": "E1",
+  "units": "mg/dL",
+  "input_summary": {
+    "count": 24,
+    "latest_glucose_mg_dl": 139.0,
+    "latest_timestamp": "2026-10-27T12:00:00",
+    "sampling_interval_minutes": 15,
+    "mean_glucose_mg_dl": 136.1,
+    "min_glucose_mg_dl": 125.0,
+    "max_glucose_mg_dl": 151.0
+  },
+  "inputs_used": [
+    "glucose",
+    "time",
+    "bolus",
+    "basal",
+    "carbs"
+  ],
+  "forecast_30m": 140.2,
+  "forecast_60m": 142.6,
+  "forecast_90m": 141.8,
+  "forecast_120m": 144.0,
+  "forecast": [
+    {
+      "step": 1,
+      "horizon_minutes": 15,
+      "timestamp": "2026-10-27T12:15:00",
+      "glucose_median": 139.0,
+      "quantiles": {
+        "q10": 85.7,
+        "q25": 137.4,
+        "q50": 139.0,
+        "q75": 142.7,
+        "q90": 169.1
+      },
+      "uncertainty_band": {
+        "low_q10": 92.4,
+        "high_q90": 164.6,
+        "bandwidth": 72.2
+      },
+      "risk_probabilities": {
+        "hypo": 0.0027,
+        "normal": 0.9868,
+        "hyper": 0.0105
+      },
+      "predicted_risk_class": "NORMAL",
+      "calibrated_thresholds": {
+        "hypo": 0.11,
+        "hyper": 0.37
+      }
+    },
+    {
+      "step": 2,
+      "horizon_minutes": 30,
+      "timestamp": "2026-10-27T12:30:00",
+      "glucose_median": 140.2,
+      "quantiles": {
+        "q10": 96.5,
+        "q25": 135.8,
+        "q50": 140.2,
+        "q75": 149.3,
+        "q90": 177.3
+      },
+      "uncertainty_band": {
+        "low_q10": 103.1,
+        "high_q90": 172.8,
+        "bandwidth": 69.7
+      },
+      "risk_probabilities": {
+        "hypo": 0.0056,
+        "normal": 0.9656,
+        "hyper": 0.0288
+      },
+      "predicted_risk_class": "NORMAL",
+      "calibrated_thresholds": {
+        "hypo": 0.11,
+        "hyper": 0.37
+      }
+    },
+    {
+      "step": 3,
+      "horizon_minutes": 45,
+      "timestamp": "2026-10-27T12:45:00",
+      "glucose_median": 140.0,
+      "quantiles": {
+        "q10": 100.3,
+        "q25": 132.0,
+        "q50": 140.0,
+        "q75": 154.3,
+        "q90": 182.6
+      },
+      "uncertainty_band": {
+        "low_q10": 108.7,
+        "high_q90": 179.0,
+        "bandwidth": 70.3
+      },
+      "risk_probabilities": {
+        "hypo": 0.0083,
+        "normal": 0.9394,
+        "hyper": 0.0522
+      },
+      "predicted_risk_class": "NORMAL",
+      "calibrated_thresholds": {
+        "hypo": 0.09,
+        "hyper": 0.33
+      }
+    },
+    {
+      "step": 4,
+      "horizon_minutes": 60,
+      "timestamp": "2026-10-27T13:00:00",
+      "glucose_median": 142.6,
+      "quantiles": {
+        "q10": 101.9,
+        "q25": 131.3,
+        "q50": 142.6,
+        "q75": 163.4,
+        "q90": 192.9
+      },
+      "uncertainty_band": {
+        "low_q10": 110.3,
+        "high_q90": 189.3,
+        "bandwidth": 79.0
+      },
+      "risk_probabilities": {
+        "hypo": 0.0103,
+        "normal": 0.8898,
+        "hyper": 0.0999
+      },
+      "predicted_risk_class": "NORMAL",
+      "calibrated_thresholds": {
+        "hypo": 0.09,
+        "hyper": 0.33
+      }
+    },
+    {
+      "step": 5,
+      "horizon_minutes": 75,
+      "timestamp": "2026-10-27T13:15:00",
+      "glucose_median": 143.3,
+      "quantiles": {
+        "q10": 100.7,
+        "q25": 126.9,
+        "q50": 143.3,
+        "q75": 168.8,
+        "q90": 198.9
+      },
+      "uncertainty_band": {
+        "low_q10": 105.7,
+        "high_q90": 201.7,
+        "bandwidth": 96.0
+      },
+      "risk_probabilities": {
+        "hypo": 0.0114,
+        "normal": 0.8524,
+        "hyper": 0.1362
+      },
+      "predicted_risk_class": "NORMAL",
+      "calibrated_thresholds": {
+        "hypo": 0.08,
+        "hyper": 0.34
+      }
+    },
+    {
+      "step": 6,
+      "horizon_minutes": 90,
+      "timestamp": "2026-10-27T13:30:00",
+      "glucose_median": 141.8,
+      "quantiles": {
+        "q10": 99.2,
+        "q25": 122.2,
+        "q50": 141.8,
+        "q75": 171.5,
+        "q90": 200.0
+      },
+      "uncertainty_band": {
+        "low_q10": 104.3,
+        "high_q90": 202.8,
+        "bandwidth": 98.5
+      },
+      "risk_probabilities": {
+        "hypo": 0.014,
+        "normal": 0.8159,
+        "hyper": 0.1701
+      },
+      "predicted_risk_class": "NORMAL",
+      "calibrated_thresholds": {
+        "hypo": 0.08,
+        "hyper": 0.34
+      }
+    },
+    {
+      "step": 7,
+      "horizon_minutes": 105,
+      "timestamp": "2026-10-27T13:45:00",
+      "glucose_median": 144.1,
+      "quantiles": {
+        "q10": 100.1,
+        "q25": 118.8,
+        "q50": 144.1,
+        "q75": 174.5,
+        "q90": 207.0
+      },
+      "uncertainty_band": {
+        "low_q10": 102.3,
+        "high_q90": 215.5,
+        "bandwidth": 113.2
+      },
+      "risk_probabilities": {
+        "hypo": 0.0129,
+        "normal": 0.7869,
+        "hyper": 0.2002
+      },
+      "predicted_risk_class": "NORMAL",
+      "calibrated_thresholds": {
+        "hypo": 0.06,
+        "hyper": 0.32
+      }
+    },
+    {
+      "step": 8,
+      "horizon_minutes": 120,
+      "timestamp": "2026-10-27T14:00:00",
+      "glucose_median": 144.0,
+      "quantiles": {
+        "q10": 98.8,
+        "q25": 117.7,
+        "q50": 144.0,
+        "q75": 174.9,
+        "q90": 208.3
+      },
+      "uncertainty_band": {
+        "low_q10": 101.0,
+        "high_q90": 216.8,
+        "bandwidth": 115.8
+      },
+      "risk_probabilities": {
+        "hypo": 0.0139,
+        "normal": 0.7635,
+        "hyper": 0.2226
+      },
+      "predicted_risk_class": "NORMAL",
+      "calibrated_thresholds": {
+        "hypo": 0.06,
+        "hyper": 0.32
+      }
+    }
+  ],
+  "horizons_summary": {
+    "30": {
+      "horizon_minutes": 30,
+      "median": 140.2,
+      "p10": 96.5,
+      "p90": 177.3,
+      "risk_class": "NORMAL",
+      "risk_probabilities": {
+        "hypo": 0.0056,
+        "normal": 0.9656,
+        "hyper": 0.0288
+      }
+    },
+    "60": {
+      "horizon_minutes": 60,
+      "median": 142.6,
+      "p10": 101.9,
+      "p90": 192.9,
+      "risk_class": "NORMAL",
+      "risk_probabilities": {
+        "hypo": 0.0103,
+        "normal": 0.8898,
+        "hyper": 0.0999
+      }
+    },
+    "90": {
+      "horizon_minutes": 90,
+      "median": 141.8,
+      "p10": 99.2,
+      "p90": 200.0,
+      "risk_class": "NORMAL",
+      "risk_probabilities": {
+        "hypo": 0.014,
+        "normal": 0.8159,
+        "hyper": 0.1701
+      }
+    },
+    "120": {
+      "horizon_minutes": 120,
+      "median": 144.0,
+      "p10": 98.8,
+      "p90": 208.3,
+      "risk_class": "NORMAL",
+      "risk_probabilities": {
+        "hypo": 0.0139,
+        "normal": 0.7635,
+        "hyper": 0.2226
+      }
+    }
+  },
+  "clinical_alert": {
+    "status": "NORMAL",
+    "message": "NORMAL: Stable glucose excursion predicted across the 2-hour forecast window.",
+    "alert_horizon_minutes": null
+  },
+  "model_version": "E1 Multimodal GPFormer (3-Seed Ensemble)",
+  "disclaimer": "EXPERIMENTAL MODEL PREDICTION ONLY. Forecasts are generated by a research neural network and must not be used as clinical diagnostic criteria, CGM replacement, or insulin dosing guidance. Always verify readings with an approved medical CGM or fingerstick glucometer."
+}

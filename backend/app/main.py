@@ -10,7 +10,7 @@ from .models import (
     ForecastV1Request, ForecastV1Response, ModelsV1Response,
     InputSummary, HorizonSummary
 )
-from .validation import validate_input_sequence
+from .validation import validate_input_sequence, validate_multimodal_events
 from .inference import engine
 from .services.e1_inference import e1_service
 from .services.model_registry import (
@@ -123,15 +123,26 @@ def forecast_v1(payload: ForecastV1Request):
     )
 
     try:
-        insulin_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.insulin_events or [])]
-        carb_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.carb_events or [])]
+        # Resolve bolus events: bolus_events takes priority; fall back to insulin_events for backward compat
+        raw_bolus = payload.bolus_events if payload.bolus_events is not None else payload.insulin_events
+        raw_basal = payload.basal_events
+        raw_carbs = payload.carb_events
+
+        # Validate and normalize all event channels
+        validated_bolus, validated_basal, validated_carbs, inputs_used, _mode = validate_multimodal_events(
+            bolus_events=raw_bolus,
+            basal_events=raw_basal,
+            carb_events=raw_carbs,
+            latest_dt=latest_dt
+        )
 
         raw_result = run_model_inference(
             model_id=model_id,
             readings=validated_readings,
             latest_dt=latest_dt,
-            insulin_events=insulin_evs,
-            carb_events=carb_evs
+            bolus_events=validated_bolus,
+            basal_events=validated_basal,
+            carb_events=validated_carbs,
         )
 
         input_summary = InputSummary(
@@ -181,6 +192,9 @@ def forecast_v1(payload: ForecastV1Request):
                     risk_probabilities=r_prob
                 )
 
+        # Use inputs_used from the model result (may be more precise than validation's)
+        result_inputs_used = raw_result.get("inputs_used", inputs_used)
+
         return ForecastV1Response(
             status="success",
             model_id=raw_result["model_id"],
@@ -188,6 +202,7 @@ def forecast_v1(payload: ForecastV1Request):
             mode=raw_result.get("mode", "cgm_only"),
             units="mg/dL",
             input_summary=input_summary,
+            inputs_used=result_inputs_used,
             forecast_30m=forecast_30m,
             forecast_60m=forecast_60m,
             forecast_90m=forecast_90m,
@@ -238,13 +253,23 @@ def predict_glucose(payload: PredictRequest):
 
     if norm_exp == "e1_gpformer":
         try:
-            insulin_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.insulin_events or [])]
-            carb_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.carb_events or [])]
+            raw_bolus = payload.bolus_events if payload.bolus_events is not None else payload.insulin_events
+            raw_basal = payload.basal_events
+            raw_carbs = payload.carb_events
+
+            validated_bolus, validated_basal, validated_carbs, inputs_used, _mode = validate_multimodal_events(
+                bolus_events=raw_bolus,
+                basal_events=raw_basal,
+                carb_events=raw_carbs,
+                latest_dt=latest_dt
+            )
+
             res = e1_service.predict(
                 readings=validated_readings,
                 latest_dt=latest_dt,
-                insulin_events=insulin_evs,
-                carb_events=carb_evs
+                bolus_events=validated_bolus,
+                basal_events=validated_basal,
+                carb_events=validated_carbs
             )
             input_summary = InputSummary(
                 count=len(validated_readings),
@@ -260,6 +285,7 @@ def predict_glucose(payload: PredictRequest):
                 experiment="e1_gpformer",
                 experiment_description="E1 Multimodal GPFormer (3-Seed Ensemble)",
                 mode=res.get("mode", "cgm_only"),
+                inputs_used=res.get("inputs_used", inputs_used),
                 units="mg/dL",
                 input_summary=input_summary,
                 forecast=res["forecast"],
@@ -267,6 +293,8 @@ def predict_glucose(payload: PredictRequest):
                 model_version=res["model_version"],
                 disclaimer=res["disclaimer"]
             )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"E1 Inference execution failed in /predict: {e}", exc_info=True)
             raise HTTPException(
@@ -295,6 +323,7 @@ def predict_glucose(payload: PredictRequest):
             latest_dt=latest_dt,
             experiment=exp
         )
+        response.inputs_used = ["glucose", "time"]
         return response
     except FileNotFoundError as fnf:
         logger.error(f"Model file not found for experiment '{exp}': {fnf}")

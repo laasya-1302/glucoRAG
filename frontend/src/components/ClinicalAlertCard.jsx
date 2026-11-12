@@ -1,12 +1,20 @@
 import React from 'react';
-import { ShieldCheck, ShieldAlert, AlertTriangle, AlertCircle, Info } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, AlertTriangle, AlertCircle } from 'lucide-react';
 
-export default function ClinicalAlertCard({ alert, experimentName, disclaimer, mode }) {
+export default function ClinicalAlertCard({
+  alert,
+  experimentName,
+  disclaimer,
+  mode,
+  _inputsUsed,
+  compareWithCgmOnly = false,
+  onToggleCompare = null,
+  isComparing = false
+}) {
   if (!alert) return null;
 
   const isHypo = alert.status === "HYPO_RISK";
   const isHyper = alert.status === "HYPER_RISK";
-  const isNormal = alert.status === "NORMAL";
 
   let alertClass = "alert-normal";
   let IconComponent = ShieldCheck;
@@ -20,6 +28,21 @@ export default function ClinicalAlertCard({ alert, experimentName, disclaimer, m
     alertClass = "alert-hyper";
     IconComponent = AlertTriangle;
     title = "Hyperglycemia Risk Projected (> 180 mg/dL)";
+  }
+
+  // Determine mode label and styling ("glucose + insulin + carbs" or "glucose only")
+  const isMultimodal = mode === 'E1';
+
+  let modeLabel = null;
+  let modeClass = 'mode-cgmonly';
+  if (mode) {
+    if (isMultimodal) {
+      modeLabel = 'glucose + insulin + carbs';
+      modeClass = 'mode-multimodal';
+    } else {
+      modeLabel = 'glucose only';
+      modeClass = 'mode-cgmonly';
+    }
   }
 
   return (
@@ -37,24 +60,32 @@ export default function ClinicalAlertCard({ alert, experimentName, disclaimer, m
               </span>
             )}
             <span className="model-source-pill">{experimentName}</span>
-            {mode && (
-              <span 
-                className="mode-pill"
-                style={{
-                  background: mode === 'E1' ? '#ecfdf5' : '#f1f5f9',
-                  color: mode === 'E1' ? '#047857' : '#475569',
-                  border: `1px solid ${mode === 'E1' ? '#a7f3d0' : '#cbd5e1'}`,
-                  borderRadius: '12px',
-                  padding: '2px 8px',
-                  fontSize: '0.75rem',
-                  fontWeight: 600
-                }}
-              >
-                {mode === 'E1' ? 'Multimodal (CGM + Events)' : 'CGM-Only Mode'}
+            {modeLabel && (
+              <span className={`mode-label ${modeClass}`}>
+                {modeLabel}
               </span>
             )}
           </div>
           <p className="alert-message">{alert.message}</p>
+          {isMultimodal && (
+            <div className="multimodal-meta-row">
+              <p className="multimodal-note">
+                ⚠ Insulin and carbs usually change the forecast only slightly in testing.
+              </p>
+              {onToggleCompare && (
+                <label className="compare-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={compareWithCgmOnly}
+                    onChange={(e) => onToggleCompare(e.target.checked)}
+                    disabled={isComparing}
+                  />
+                  <span>Compare with glucose only</span>
+                  {isComparing && <span className="comparing-spinner">…</span>}
+                </label>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

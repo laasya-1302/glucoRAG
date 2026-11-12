@@ -1,7 +1,12 @@
 import React from 'react';
 import { Table, ShieldAlert, CheckCircle, AlertTriangle } from 'lucide-react';
 
-export default function ForecastTable({ forecast, units = "mg/dL" }) {
+export default function ForecastTable({
+  forecast,
+  units = "mg/dL",
+  compareWithCgmOnly = false,
+  horizonDiffs = []
+}) {
   if (!forecast || forecast.length === 0) return null;
 
   const formatTime = (isoString) => {
@@ -35,6 +40,7 @@ export default function ForecastTable({ forecast, units = "mg/dL" }) {
               <th>Horizon</th>
               <th>Est. Time</th>
               <th>Median (q50)</th>
+              {compareWithCgmOnly && <th>Diff vs Glucose Only</th>}
               <th>10%–90% Interval</th>
               <th>Bandwidth</th>
               <th>Hypo Risk (&lt;70)</th>
@@ -49,6 +55,7 @@ export default function ForecastTable({ forecast, units = "mg/dL" }) {
               const isHyper = row.predicted_risk_class === 'HYPER';
               const isNormal = row.predicted_risk_class === 'NORMAL';
               const hypoAlert = row.risk_probabilities.hypo >= 0.30;
+              const diffItem = horizonDiffs?.find(d => d.step === row.step);
 
               return (
                 <tr key={row.step} className={hypoAlert ? 'row-alert' : ''}>
@@ -62,6 +69,13 @@ export default function ForecastTable({ forecast, units = "mg/dL" }) {
                       {row.glucose_median} <span className="unit-label">{units}</span>
                     </strong>
                   </td>
+                  {compareWithCgmOnly && (
+                    <td>
+                      <span className={`diff-pill ${diffItem && diffItem.diff_mg_dl > 0 ? 'diff-pos' : (diffItem && diffItem.diff_mg_dl < 0 ? 'diff-neg' : 'diff-neutral')}`}>
+                        {diffItem ? `${diffItem.diff_mg_dl > 0 ? '+' : ''}${diffItem.diff_mg_dl.toFixed(1)} ${units}` : '—'}
+                      </span>
+                    </td>
+                  )}
                   <td>
                     <span className="font-mono text-slate">
                       [{row.uncertainty_band.low_q10} – {row.uncertainty_band.high_q90}]

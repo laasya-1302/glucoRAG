@@ -1,0 +1,27 @@
+{
+  "arch": {
+    "d_model": 128,
+    "n_heads": 8,
+    "e_layers": 3,
+    "d_ff": 2048,
+    "dropout": 0.05,
+    "embed": "cycF",
+    "freq": "cyc"
+  },
+  "norm": {
+    "mean": 151.2,
+    "std": 54.1
+  },
+  "mark_dim": 2,
+  "repo": "C:\\Users\\avnre\\Downloads\\diabetes\\gpformer",
+  "sources": [
+    "replacebg",
+    "shanghai_t2d"
+  ],
+  "class_weights": [
+    1.4,
+    0.6,
+    1.2
+  ],
+  "experiment_name": "Experiment B (REPLACE-BG + Shanghai T2D)"
+}

@@ -69,8 +69,11 @@ def run_model_inference(
     model_id: str,
     readings: list[float],
     latest_dt: datetime,
+    bolus_events: Optional[list[dict]] = None,
+    basal_events: Optional[list[dict]] = None,
+    carb_events: Optional[list[dict]] = None,
+    # Backward compat
     insulin_events: Optional[list[dict]] = None,
-    carb_events: Optional[list[dict]] = None
 ) -> dict[str, Any]:
     norm_id = normalize_model_id(model_id)
 
@@ -78,13 +81,16 @@ def run_model_inference(
         result = e1_service.predict(
             readings=readings,
             latest_dt=latest_dt,
+            bolus_events=bolus_events,
+            basal_events=basal_events,
+            carb_events=carb_events,
             insulin_events=insulin_events,
-            carb_events=carb_events
         )
         return {
             "model_id": "e1_gpformer",
             "model_name": "E1 Multimodal GPFormer (3-Seed Ensemble)",
             "mode": result["mode"],
+            "inputs_used": result.get("inputs_used", ["glucose", "time"]),
             "forecast": result["forecast"],
             "clinical_alert": result["clinical_alert"],
             "model_version": result["model_version"],
@@ -96,6 +102,7 @@ def run_model_inference(
             "model_id": "experiment_a",
             "model_name": "Experiment A (REPLACE-BG)",
             "mode": "cgm_only",
+            "inputs_used": ["glucose", "time"],
             "forecast": [s.model_dump() for s in res.forecast],
             "clinical_alert": res.clinical_alert.model_dump(),
             "model_version": res.model_version,
@@ -107,6 +114,7 @@ def run_model_inference(
             "model_id": "experiment_b",
             "model_name": "Experiment B (REPLACE-BG + Shanghai T2D)",
             "mode": "cgm_only",
+            "inputs_used": ["glucose", "time"],
             "forecast": [s.model_dump() for s in res.forecast],
             "clinical_alert": res.clinical_alert.model_dump(),
             "model_version": res.model_version,

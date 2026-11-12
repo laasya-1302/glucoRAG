@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Header from './components/Header';
 import BluetoothCard from './components/BluetoothCard';
 import GlucoseInputForm from './components/GlucoseInputForm';
+import InsulinCarbsForm from './components/InsulinCarbsForm';
 import ForecastChart from './components/ForecastChart';
 import ForecastTable from './components/ForecastTable';
 import ClinicalAlertCard from './components/ClinicalAlertCard';
@@ -9,6 +10,7 @@ import ModelInfoCard from './components/ModelInfoCard';
 import ErrorBanner from './components/ErrorBanner';
 import { fetchHealth, fetchModelInfo, predictGlucose } from './services/api';
 import { bleClient } from './services/ble';
+import { buildEventPayloads, computeHorizonDifferences } from './utils/multimodal';
 
 const DEFAULT_READINGS = [
   "142", "138", "135", "132", "129", "127", "125", "128", "131", "134", "139", "145",
@@ -25,7 +27,7 @@ export default function App() {
   const [readings, setReadings] = useState(DEFAULT_READINGS);
   const [latestTimestamp, setLatestTimestamp] = useState(getLocalDateTimeString());
   const [selectedExperiment, setSelectedExperiment] = useState("gp_A");
-  
+
   // API State
   const [health, setHealth] = useState({ online: false });
   const [modelInfo, setModelInfo] = useState(null);
@@ -41,6 +43,18 @@ export default function App() {
   const [bleHistoryCount, setBleHistoryCount] = useState(0);
   const [transferProgress, setTransferProgress] = useState(null);
 
+  // Insulin & Carbs State
+  const [insulinEnabled, setInsulinEnabled] = useState(false);
+  const [carbsEnabled, setCarbsEnabled] = useState(false);
+  const [bolusEvents, setBolusEvents] = useState([]); // [{id, time, units}]
+  const [basalRate, setBasalRate] = useState(null);   // {time, rate} | null
+  const [carbEvents, setCarbEvents] = useState([]);   // [{id, time, grams}]
+
+  // Comparison with CGM-only State
+  const [compareWithCgmOnly, setCompareWithCgmOnly] = useState(false);
+  const [cgmOnlyForecast, setCgmOnlyForecast] = useState(null);
+  const [isComparing, setIsComparing] = useState(false);
+
   // Track sequence numbers to prevent duplicate processing
   const processedSequencesRef = useRef(new Set());
   const readingsRef = useRef(readings);
@@ -53,6 +67,34 @@ export default function App() {
   useEffect(() => {
     checkHealthAndModel();
   }, []);
+
+  // Load insulin/carbs state from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('glucorag_insulin_carbs');
+      if (saved) {
+        const d = JSON.parse(saved);
+        if (d.insulinEnabled !== undefined) setInsulinEnabled(d.insulinEnabled);
+        if (d.carbsEnabled !== undefined) setCarbsEnabled(d.carbsEnabled);
+        if (d.bolusEvents) setBolusEvents(d.bolusEvents);
+        if (d.basalRate !== undefined) setBasalRate(d.basalRate);
+        if (d.carbEvents) setCarbEvents(d.carbEvents);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }, []);
+
+  // Persist insulin/carbs state to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem('glucorag_insulin_carbs', JSON.stringify({
+        insulinEnabled, carbsEnabled, bolusEvents, basalRate, carbEvents
+      }));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [insulinEnabled, carbsEnabled, bolusEvents, basalRate, carbEvents]);
 
   const checkHealthAndModel = async () => {
     try {
@@ -71,16 +113,34 @@ export default function App() {
   };
 
   /**
-   * Helper to trigger GPFormer model inference whenever 24 valid readings are present.
+   * Helper to build bolus/basal/carb payloads for the API using multimodal utils.
+   * Pass forceNull=true (BLE live mode) to send null for all three-state fields.
    */
-  const runPrediction = useCallback(async (currentReadings, timestamp, experiment) => {
+  const buildCurrentPayloads = useCallback((forceNull = false) => {
+    return buildEventPayloads({
+      insulinEnabled,
+      carbsEnabled,
+      bolusEvents,
+      basalRate,
+      carbEvents,
+      latestTimestamp,
+      forceNull
+    });
+  }, [insulinEnabled, carbsEnabled, bolusEvents, basalRate, carbEvents, latestTimestamp]);
+
+  /**
+   * Helper to trigger GPFormer model inference whenever 24 valid readings are present.
+   * options: { bolusEvents, basalEvents, carbEvents } — pass null values for BLE live mode
+   */
+  const runPrediction = useCallback(async (currentReadings, timestamp, experiment, options = {}) => {
     const valid = currentReadings.map(r => parseFloat(r)).filter(n => !isNaN(n) && n >= 20 && n <= 600);
     if (valid.length !== 24) return;
 
     setIsLoading(true);
     setApiError(null);
+    setCgmOnlyForecast(null); // Reset comparison cache on new run
     try {
-      const response = await predictGlucose(currentReadings, timestamp, experiment);
+      const response = await predictGlucose(currentReadings, timestamp, experiment, options);
       setPredictionResult(response);
       setHealth({ online: true });
     } catch (err) {
@@ -142,8 +202,13 @@ export default function App() {
       }
 
       // Re-run GPFormer inference automatically on live streaming reading
+      // BLE live readings use CGM-only mode (null for all event payloads)
       const updatedWindow = [...readingsRef.current.slice(1), String(readingMsg.glucose)];
-      runPrediction(updatedWindow, readingMsg.timestamp, selectedExperimentRef.current);
+      runPrediction(updatedWindow, readingMsg.timestamp, selectedExperimentRef.current, {
+        bolusEvents: null,
+        basalEvents: null,
+        carbEvents: null,
+      });
     };
 
     // 3. Initial 24-reading transfer progress listener
@@ -193,8 +258,13 @@ export default function App() {
       });
 
       // Trigger GPFormer prediction immediately with the fresh 24-reading history
+      // BLE history transfers use CGM-only mode (null for all event payloads)
       if (stringified.length === 24) {
-        runPrediction(stringified, lastPoint?.timestamp, selectedExperimentRef.current);
+        runPrediction(stringified, lastPoint?.timestamp, selectedExperimentRef.current, {
+          bolusEvents: null,
+          basalEvents: null,
+          carbEvents: null,
+        });
       }
     };
 
@@ -269,8 +339,33 @@ export default function App() {
       }
     }
 
-    await runPrediction(readings, latestTimestamp, selectedExperiment);
+    // Build event payloads from current insulin/carbs state
+    const eventPayloads = buildCurrentPayloads(false);
+    await runPrediction(readings, latestTimestamp, selectedExperiment, eventPayloads);
   };
+
+  const handleToggleCompare = async (checked) => {
+    setCompareWithCgmOnly(checked);
+    if (checked && !cgmOnlyForecast && predictionResult) {
+      setIsComparing(true);
+      try {
+        const cgmOnlyRes = await predictGlucose(readings, latestTimestamp, selectedExperiment, {
+          bolusEvents: null,
+          basalEvents: null,
+          carbEvents: null,
+        });
+        setCgmOnlyForecast(cgmOnlyRes.forecast);
+      } catch (err) {
+        console.warn("Failed to fetch glucose-only forecast comparison", err);
+      } finally {
+        setIsComparing(false);
+      }
+    }
+  };
+
+  const horizonDiffs = (predictionResult?.mode === 'E1' && cgmOnlyForecast)
+    ? computeHorizonDifferences(predictionResult.forecast, cgmOnlyForecast)
+    : [];
 
   return (
     <div className="app-layout">
@@ -316,14 +411,34 @@ export default function App() {
           setFormError={setFormError}
         />
 
+        {/* Insulin & Carbs Section */}
+        <InsulinCarbsForm
+          insulinEnabled={insulinEnabled}
+          carbsEnabled={carbsEnabled}
+          onInsulinToggle={setInsulinEnabled}
+          onCarbsToggle={setCarbsEnabled}
+          bolusEvents={bolusEvents}
+          setBolusEvents={setBolusEvents}
+          basalRate={basalRate}
+          setBasalRate={setBasalRate}
+          carbEvents={carbEvents}
+          setCarbEvents={setCarbEvents}
+          latestTimestamp={latestTimestamp}
+          warnings={[]}
+        />
+
         {/* Prediction Results Section */}
         {predictionResult && (
           <section className="results-section">
             <ClinicalAlertCard
               alert={predictionResult.clinical_alert}
-              experimentName={predictionResult.experiment_description}
+              experimentName={predictionResult.experiment_description || predictionResult.model_name}
               disclaimer={predictionResult.disclaimer}
               mode={predictionResult.mode}
+              inputsUsed={predictionResult.inputs_used}
+              compareWithCgmOnly={compareWithCgmOnly}
+              onToggleCompare={handleToggleCompare}
+              isComparing={isComparing}
             />
 
             <ForecastChart
@@ -335,6 +450,8 @@ export default function App() {
             <ForecastTable
               forecast={predictionResult.forecast}
               units={predictionResult.units}
+              compareWithCgmOnly={compareWithCgmOnly}
+              horizonDiffs={horizonDiffs}
             />
           </section>
         )}
@@ -355,4 +472,3 @@ export default function App() {
     </div>
   );
 }
-

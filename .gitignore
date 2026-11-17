@@ -35,6 +35,8 @@ env/
 # Model checkpoints and weights
 # =========================
 *.pt
+!runs/gp_A/best.pt
+!runs/gp_B/best.pt
 !model_v2/runs/E1_gpf_multi_pooled_s42/best.pt
 !model_v2/runs/E1_gpf_multi_pooled_s123/best.pt
 !model_v2/runs/E1_gpf_multi_pooled_s2026/best.pt
@@ -52,7 +54,7 @@ lightning_logs/
 wandb/
 tensorboard/
 runs/*/last.pt
-runs/*/best.pt
+# runs/*/best.pt
 
 # Keep model configuration and metadata
 !model_v2/manifests/*.json

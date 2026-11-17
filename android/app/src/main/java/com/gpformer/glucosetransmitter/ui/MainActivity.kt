@@ -70,6 +70,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Runtime permission launcher for Android 13+ (API 33+) POST_NOTIFICATIONS permission.
+     */
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            Toast.makeText(this, "Notification permission granted ✓", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Notification permission denied - smartwatch mirroring disabled", Toast.LENGTH_LONG).show()
+        }
+    }
+
     // ── Lifecycle ──
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -80,6 +93,7 @@ class MainActivity : AppCompatActivity() {
         setupRecyclerView()
         setupClickListeners()
         requestBlePermissions()
+        requestNotificationPermission()
         observeStateFlows()
     }
 
@@ -146,8 +160,43 @@ class MainActivity : AppCompatActivity() {
         binding.btnSeedHistory.setOnClickListener {
             viewModel.seed24Readings()
         }
+        binding.btnSeedHypoPattern.setOnClickListener {
+            viewModel.seedHypoReadings()
+        }
+        binding.btnSeedHyperPattern.setOnClickListener {
+            viewModel.seedHyperReadings()
+        }
         binding.btnClearHistory.setOnClickListener {
             viewModel.clearHistory()
+        }
+
+        // Smartwatch & Prediction Alerts controls
+        binding.etBackendUrl.setText(viewModel.getBackendUrl())
+        binding.btnSaveBackendUrl.setOnClickListener {
+            val url = binding.etBackendUrl.text?.toString() ?: ""
+            if (url.isNotBlank()) {
+                viewModel.setBackendUrl(url)
+                hideKeyboard()
+            }
+        }
+
+        binding.btnTestSmartwatchNotification.setOnClickListener {
+            requestNotificationPermission()
+            viewModel.sendSmartwatchTestNotification()
+        }
+
+        binding.btnTestHypoAlert.setOnClickListener {
+            requestNotificationPermission()
+            viewModel.sendTestHypoAlert()
+        }
+
+        binding.btnTestHyperAlert.setOnClickListener {
+            requestNotificationPermission()
+            viewModel.sendTestHyperAlert()
+        }
+
+        binding.btnRunPredictionNow.setOnClickListener {
+            viewModel.runPredictionInference()
         }
     }
 
@@ -278,6 +327,50 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
+
+                // Alert status banner
+                launch {
+                    viewModel.alertStatusText.collect { text ->
+                        binding.tvAlertStatusBanner.text = text
+                    }
+                }
+
+                // Prediction running state
+                launch {
+                    viewModel.isPredicting.collect { predicting ->
+                        binding.btnRunPredictionNow.isEnabled = !predicting
+                        binding.btnRunPredictionNow.text = if (predicting) "Predicting..." else "Predict Now"
+                    }
+                }
+
+                // Prediction results & probabilities
+                launch {
+                    viewModel.predictionResult.collect { result ->
+                        if (result != null) {
+                            binding.tvLiveTrend.text = result.trend.displayText
+                            binding.tvLiveForecast30m.text = "${result.forecast30m} mg/dL"
+
+                            val colorRes = when {
+                                result.forecast30m < 70.0 -> R.color.risk_hypo
+                                result.forecast30m > 180.0 -> R.color.risk_hyper
+                                else -> R.color.risk_normal
+                            }
+                            binding.tvLiveForecast30m.setTextColor(
+                                ContextCompat.getColor(this@MainActivity, colorRes)
+                            )
+
+                            binding.tvLiveProbabilities.text =
+                                "Hypo: ${result.hypoProbPct}% | Normal: ${result.normalProbPct}% | Hyper: ${result.hyperProbPct}%"
+                        } else {
+                            binding.tvLiveTrend.text = "Stable →"
+                            binding.tvLiveForecast30m.text = "-- mg/dL"
+                            binding.tvLiveForecast30m.setTextColor(
+                                ContextCompat.getColor(this@MainActivity, R.color.on_surface)
+                            )
+                            binding.tvLiveProbabilities.text = "Hypo: --% | Normal: --% | Hyper: --%"
+                        }
+                    }
+                }
             }
         }
     }
@@ -310,6 +403,22 @@ class MainActivity : AppCompatActivity() {
 
         if (ungranted.isNotEmpty()) {
             blePermissionLauncher.launch(ungranted.toTypedArray())
+        }
+    }
+
+    /**
+     * Requests POST_NOTIFICATIONS permission on Android 13+ (API 33+)
+     * required for posting notifications mirrored to the smartwatch.
+     */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val status = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+            if (status != PackageManager.PERMISSION_GRANTED) {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
         }
     }
 

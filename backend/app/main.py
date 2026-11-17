@@ -1,6 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -8,14 +8,17 @@ from .config import settings
 from .models import (
     PredictRequest, PredictResponse, HealthResponse, ModelInfoResponse,
     ForecastV1Request, ForecastV1Response, ModelsV1Response,
-    InputSummary, HorizonSummary
+    InputSummary, HorizonSummary, ClinicalAlert
 )
-from .validation import validate_input_sequence
+from .validation import validate_input_sequence, validate_forecast_inputs
 from .inference import engine
 from .services.e1_inference import e1_service
 from .services.model_registry import (
     get_registered_models, is_model_supported, run_model_inference, normalize_model_id
 )
+from .routers.auth import router as auth_router
+from .auth.security import require_complete_profile
+from .db.database import UserRecord
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("gpformer_api")
@@ -53,6 +56,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(auth_router)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -102,34 +107,45 @@ def get_models():
     return ModelsV1Response(models=models_list)
 
 @app.post("/v1/forecast", response_model=ForecastV1Response, tags=["Inference"])
-def forecast_v1(payload: ForecastV1Request):
+def forecast_v1(
+    payload: ForecastV1Request,
+    user: UserRecord = Depends(require_complete_profile)
+):
     """
     Unified multi-horizon forecasting endpoint supporting E1 multimodal GPFormer
     as well as Experiment A and B checkpoints.
+    Requires an authenticated user with a completed profile.
     """
     model_id = payload.model_id or "e1_gpformer"
     if not is_model_supported(model_id):
         raise HTTPException(
             status_code=400,
             detail={
+                "code": "invalid_model_id",
                 "error": "InvalidModelId",
                 "message": f"Model '{model_id}' is not recognized. Supported models: 'e1_gpformer', 'experiment_a', 'experiment_b'."
             }
         )
 
-    validated_readings, latest_dt = validate_input_sequence(
+    validated_readings, latest_dt, slot_dts = validate_forecast_inputs(
         payload.readings,
-        payload.latest_timestamp
+        payload.latest_timestamp,
+        grid=payload.grid or "manual",
+        units=payload.units or "mg/dL"
     )
 
     try:
-        insulin_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.insulin_events or [])]
-        carb_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.carb_events or [])]
+        insulin_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.insulin_events or [])] if payload.insulin_events is not None else None
+        carb_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.carb_events or [])] if payload.carb_events is not None else None
 
         raw_result = run_model_inference(
             model_id=model_id,
             readings=validated_readings,
             latest_dt=latest_dt,
+            slot_dts=slot_dts,
+            bolus=payload.bolus,
+            basal=payload.basal,
+            carbs=payload.carbs,
             insulin_events=insulin_evs,
             carb_events=carb_evs
         )
@@ -181,12 +197,43 @@ def forecast_v1(payload: ForecastV1Request):
                     risk_probabilities=r_prob
                 )
 
+        alert_obj = raw_result.get("clinical_alert")
+        if not alert_obj:
+            hypo_steps = [s for s in forecast_steps if (s.get("alert") if isinstance(s, dict) else s.alert) == "Possible low glucose"]
+            hyper_steps = [s for s in forecast_steps if (s.get("alert") if isinstance(s, dict) else s.alert) == "Possible high glucose"]
+            if hypo_steps:
+                h_min = hypo_steps[0]["horizon_minutes"] if isinstance(hypo_steps[0], dict) else hypo_steps[0].horizon_minutes
+                alert_obj = ClinicalAlert(
+                    status="HYPO_RISK",
+                    message=f"Possible low glucose detected at +{h_min} min.",
+                    alert_horizon_minutes=h_min
+                )
+            elif hyper_steps:
+                h_min = hyper_steps[0]["horizon_minutes"] if isinstance(hyper_steps[0], dict) else hyper_steps[0].horizon_minutes
+                alert_obj = ClinicalAlert(
+                    status="HYPER_RISK",
+                    message=f"Possible high glucose detected at +{h_min} min.",
+                    alert_horizon_minutes=h_min
+                )
+            else:
+                alert_obj = ClinicalAlert(
+                    status="NORMAL",
+                    message="No immediate hypo/hyperglycemic risk flags triggered.",
+                    alert_horizon_minutes=None
+                )
+        elif isinstance(alert_obj, dict):
+            alert_obj = ClinicalAlert(**alert_obj)
+
         return ForecastV1Response(
             status="success",
             model_id=raw_result["model_id"],
             model_name=raw_result["model_name"],
             mode=raw_result.get("mode", "cgm_only"),
+            inputs_used=raw_result.get("inputs_used", ["cgm"]),
             units="mg/dL",
+            forecast_origin=raw_result.get("forecast_origin", latest_dt.isoformat()),
+            now_mgdl=raw_result.get("now_mgdl", float(validated_readings[-1])),
+            checkpoint_sha256=raw_result.get("checkpoint_sha256"),
             input_summary=input_summary,
             forecast_30m=forecast_30m,
             forecast_60m=forecast_60m,
@@ -194,17 +241,28 @@ def forecast_v1(payload: ForecastV1Request):
             forecast_120m=forecast_120m,
             forecast=forecast_steps,
             horizons_summary=horizons_summary,
-            clinical_alert=raw_result["clinical_alert"],
+            clinical_alert=alert_obj,
+            inspector=raw_result.get("inspector"),
             model_version=raw_result.get("model_version", "1.0.0"),
             disclaimer=raw_result.get("disclaimer", "")
         )
     except HTTPException:
         raise
+    except ValueError as ve:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "invalid_input",
+                "error": "ValidationError",
+                "message": str(ve)
+            }
+        )
     except FileNotFoundError as fnf:
         logger.error(f"Model checkpoint not found: {fnf}")
         raise HTTPException(
             status_code=503,
             detail={
+                "code": "model_unavailable",
                 "error": "ModelUnavailable",
                 "message": f"Model checkpoints or manifests for '{model_id}' are unavailable on the server."
             }
@@ -214,6 +272,7 @@ def forecast_v1(payload: ForecastV1Request):
         raise HTTPException(
             status_code=500,
             detail={
+                "code": "inference_error",
                 "error": "InferenceError",
                 "message": f"Failed to compute model predictions: {str(e)}"
             }

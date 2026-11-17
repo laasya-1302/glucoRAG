@@ -1,12 +1,11 @@
 import React from 'react';
-import { ShieldCheck, ShieldAlert, AlertTriangle, AlertCircle, Info } from 'lucide-react';
+import { ShieldCheck, ShieldAlert, AlertTriangle, AlertCircle } from 'lucide-react';
 
-export default function ClinicalAlertCard({ alert, experimentName, disclaimer, mode }) {
+export default function ClinicalAlertCard({ alert, experimentName, disclaimer, mode, inputsUsed }) {
   if (!alert) return null;
 
   const isHypo = alert.status === "HYPO_RISK";
   const isHyper = alert.status === "HYPER_RISK";
-  const isNormal = alert.status === "NORMAL";
 
   let alertClass = "alert-normal";
   let IconComponent = ShieldCheck;
@@ -20,6 +19,21 @@ export default function ClinicalAlertCard({ alert, experimentName, disclaimer, m
     alertClass = "alert-hyper";
     IconComponent = AlertTriangle;
     title = "Hyperglycemia Risk Projected (> 180 mg/dL)";
+  }
+
+  const isMultimodal = mode === "multimodal" || mode === "E1";
+  let modeLabel = "glucose only";
+  if (isMultimodal) {
+    if (Array.isArray(inputsUsed) && inputsUsed.length > 0) {
+      const mapped = inputsUsed.map(i => {
+        if (i === 'cgm') return 'glucose';
+        if (i === 'bolus' || i === 'basal') return 'insulin';
+        return i;
+      });
+      modeLabel = [...new Set(mapped)].join(" + ");
+    } else {
+      modeLabel = "glucose + insulin + carbs";
+    }
   }
 
   return (
@@ -41,16 +55,17 @@ export default function ClinicalAlertCard({ alert, experimentName, disclaimer, m
               <span 
                 className="mode-pill"
                 style={{
-                  background: mode === 'E1' ? '#ecfdf5' : '#f1f5f9',
-                  color: mode === 'E1' ? '#047857' : '#475569',
-                  border: `1px solid ${mode === 'E1' ? '#a7f3d0' : '#cbd5e1'}`,
+                  background: isMultimodal ? '#ecfdf5' : '#f1f5f9',
+                  color: isMultimodal ? '#047857' : '#475569',
+                  border: `1px solid ${isMultimodal ? '#a7f3d0' : '#cbd5e1'}`,
                   borderRadius: '12px',
                   padding: '2px 8px',
                   fontSize: '0.75rem',
-                  fontWeight: 600
+                  fontWeight: 600,
+                  textTransform: 'lowercase'
                 }}
               >
-                {mode === 'E1' ? 'Multimodal (CGM + Events)' : 'CGM-Only Mode'}
+                {modeLabel}
               </span>
             )}
           </div>

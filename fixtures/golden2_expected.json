@@ -1,0 +1,315 @@
+{
+  "mode": "multimodal",
+  "inputs_used": [
+    "cgm",
+    "bolus",
+    "basal",
+    "carbs"
+  ],
+  "forecast_origin": "2026-11-10T12:30:00",
+  "now_mgdl": 60.0,
+  "forecast": [
+    {
+      "step": 1,
+      "horizon_minutes": 15,
+      "timestamp": "2026-11-10T12:45:00",
+      "median": 67.7,
+      "glucose_median": 67.7,
+      "lo": 56.9,
+      "hi": 92.5,
+      "quantiles": {
+        "q10": 50.2,
+        "q25": 65.4,
+        "q50": 67.7,
+        "q75": 79.7,
+        "q90": 97.0
+      },
+      "uncertainty_band": {
+        "low_q10": 56.9,
+        "high_q90": 92.5,
+        "bandwidth": 35.6
+      },
+      "p_hypo": 0.2894,
+      "p_normal": 0.7077,
+      "p_hyper": 0.0029,
+      "risk_probabilities": {
+        "hypo": 0.2894,
+        "normal": 0.7077,
+        "hyper": 0.0029
+      },
+      "forecast_class": "low",
+      "predicted_risk_class": "LOW",
+      "alert": null,
+      "calibrated_thresholds": null,
+      "is_validated": false
+    },
+    {
+      "step": 2,
+      "horizon_minutes": 30,
+      "timestamp": "2026-11-10T13:00:00",
+      "median": 84.3,
+      "glucose_median": 84.3,
+      "lo": 59.4,
+      "hi": 126.0,
+      "quantiles": {
+        "q10": 52.8,
+        "q25": 71.4,
+        "q50": 84.3,
+        "q75": 105.8,
+        "q90": 130.5
+      },
+      "uncertainty_band": {
+        "low_q10": 59.4,
+        "high_q90": 126.0,
+        "bandwidth": 66.6
+      },
+      "p_hypo": 0.1442,
+      "p_normal": 0.8449,
+      "p_hyper": 0.0109,
+      "risk_probabilities": {
+        "hypo": 0.1442,
+        "normal": 0.8449,
+        "hyper": 0.0109
+      },
+      "forecast_class": "normal",
+      "predicted_risk_class": "NORMAL",
+      "alert": "Possible low glucose",
+      "calibrated_thresholds": {
+        "hypo": 0.11,
+        "hyper": 0.37
+      },
+      "is_validated": true
+    },
+    {
+      "step": 3,
+      "horizon_minutes": 45,
+      "timestamp": "2026-11-10T13:15:00",
+      "median": 100.0,
+      "glucose_median": 100.0,
+      "lo": 70.5,
+      "hi": 150.5,
+      "quantiles": {
+        "q10": 62.1,
+        "q25": 76.1,
+        "q50": 100.0,
+        "q75": 131.5,
+        "q90": 154.0
+      },
+      "uncertainty_band": {
+        "low_q10": 70.5,
+        "high_q90": 150.5,
+        "bandwidth": 80.0
+      },
+      "p_hypo": 0.1283,
+      "p_normal": 0.8295,
+      "p_hyper": 0.0422,
+      "risk_probabilities": {
+        "hypo": 0.1283,
+        "normal": 0.8295,
+        "hyper": 0.0422
+      },
+      "forecast_class": "normal",
+      "predicted_risk_class": "NORMAL",
+      "alert": null,
+      "calibrated_thresholds": null,
+      "is_validated": false
+    },
+    {
+      "step": 4,
+      "horizon_minutes": 60,
+      "timestamp": "2026-11-10T13:30:00",
+      "median": 108.9,
+      "glucose_median": 108.9,
+      "lo": 69.1,
+      "hi": 163.1,
+      "quantiles": {
+        "q10": 60.7,
+        "q25": 75.0,
+        "q50": 108.9,
+        "q75": 141.4,
+        "q90": 166.6
+      },
+      "uncertainty_band": {
+        "low_q10": 69.1,
+        "high_q90": 163.1,
+        "bandwidth": 94.0
+      },
+      "p_hypo": 0.1101,
+      "p_normal": 0.8117,
+      "p_hyper": 0.0783,
+      "risk_probabilities": {
+        "hypo": 0.1101,
+        "normal": 0.8117,
+        "hyper": 0.0783
+      },
+      "forecast_class": "normal",
+      "predicted_risk_class": "NORMAL",
+      "alert": "Possible low glucose",
+      "calibrated_thresholds": {
+        "hypo": 0.09,
+        "hyper": 0.33
+      },
+      "is_validated": true
+    },
+    {
+      "step": 5,
+      "horizon_minutes": 75,
+      "timestamp": "2026-11-10T13:45:00",
+      "median": 108.7,
+      "glucose_median": 108.7,
+      "lo": 66.1,
+      "hi": 178.3,
+      "quantiles": {
+        "q10": 61.1,
+        "q25": 73.9,
+        "q50": 108.7,
+        "q75": 148.9,
+        "q90": 175.6
+      },
+      "uncertainty_band": {
+        "low_q10": 66.1,
+        "high_q90": 178.3,
+        "bandwidth": 112.2
+      },
+      "p_hypo": 0.0978,
+      "p_normal": 0.7956,
+      "p_hyper": 0.1066,
+      "risk_probabilities": {
+        "hypo": 0.0978,
+        "normal": 0.7956,
+        "hyper": 0.1066
+      },
+      "forecast_class": "normal",
+      "predicted_risk_class": "NORMAL",
+      "alert": null,
+      "calibrated_thresholds": null,
+      "is_validated": false
+    },
+    {
+      "step": 6,
+      "horizon_minutes": 90,
+      "timestamp": "2026-11-10T14:00:00",
+      "median": 114.4,
+      "glucose_median": 114.4,
+      "lo": 67.2,
+      "hi": 182.3,
+      "quantiles": {
+        "q10": 62.1,
+        "q25": 72.9,
+        "q50": 114.4,
+        "q75": 151.1,
+        "q90": 179.5
+      },
+      "uncertainty_band": {
+        "low_q10": 67.2,
+        "high_q90": 182.3,
+        "bandwidth": 115.1
+      },
+      "p_hypo": 0.0988,
+      "p_normal": 0.7604,
+      "p_hyper": 0.1409,
+      "risk_probabilities": {
+        "hypo": 0.0988,
+        "normal": 0.7604,
+        "hyper": 0.1409
+      },
+      "forecast_class": "normal",
+      "predicted_risk_class": "NORMAL",
+      "alert": "Possible low glucose",
+      "calibrated_thresholds": {
+        "hypo": 0.08,
+        "hyper": 0.34
+      },
+      "is_validated": true
+    },
+    {
+      "step": 7,
+      "horizon_minutes": 105,
+      "timestamp": "2026-11-10T14:15:00",
+      "median": 114.9,
+      "glucose_median": 114.9,
+      "lo": 65.9,
+      "hi": 191.8,
+      "quantiles": {
+        "q10": 63.7,
+        "q25": 76.0,
+        "q50": 114.9,
+        "q75": 155.6,
+        "q90": 183.3
+      },
+      "uncertainty_band": {
+        "low_q10": 65.9,
+        "high_q90": 191.8,
+        "bandwidth": 125.9
+      },
+      "p_hypo": 0.0917,
+      "p_normal": 0.7369,
+      "p_hyper": 0.1715,
+      "risk_probabilities": {
+        "hypo": 0.0917,
+        "normal": 0.7369,
+        "hyper": 0.1715
+      },
+      "forecast_class": "normal",
+      "predicted_risk_class": "NORMAL",
+      "alert": null,
+      "calibrated_thresholds": null,
+      "is_validated": false
+    },
+    {
+      "step": 8,
+      "horizon_minutes": 120,
+      "timestamp": "2026-11-10T14:30:00",
+      "median": 116.7,
+      "glucose_median": 116.7,
+      "lo": 66.5,
+      "hi": 197.4,
+      "quantiles": {
+        "q10": 64.3,
+        "q25": 78.0,
+        "q50": 116.7,
+        "q75": 159.2,
+        "q90": 188.9
+      },
+      "uncertainty_band": {
+        "low_q10": 66.5,
+        "high_q90": 197.4,
+        "bandwidth": 130.9
+      },
+      "p_hypo": 0.0723,
+      "p_normal": 0.7397,
+      "p_hyper": 0.188,
+      "risk_probabilities": {
+        "hypo": 0.0723,
+        "normal": 0.7397,
+        "hyper": 0.188
+      },
+      "forecast_class": "normal",
+      "predicted_risk_class": "NORMAL",
+      "alert": "Possible low glucose",
+      "calibrated_thresholds": {
+        "hypo": 0.06,
+        "hyper": 0.32
+      },
+      "is_validated": true
+    }
+  ],
+  "clinical_alert": {
+    "status": "HYPO_RISK",
+    "message": "Possible low glucose detected at +15 min.",
+    "alert_horizon_minutes": 15
+  },
+  "ensemble_seeds": [
+    "s42",
+    "s123",
+    "s2026"
+  ],
+  "model_name": "E1 Multimodal GPFormer",
+  "model_version": "E1 Multimodal GPFormer (3-Seed Ensemble)",
+  "checkpoint_sha256": {
+    "s42": "d97427270d5ea43e748bbe901acccd504299dcb6601f55b9367219675c986153",
+    "s123": "fa9cc92514eb23b590120d2e598fb2ba8d75a2a277e12e750a77234d04bcb54b",
+    "s2026": "98bfbb1534a7c2fdc858fd392f1e96a75f46631e5e3c0985671e47a77cadb6ef"
+  },
+  "disclaimer": "Research prototype. Not a medical device. Do not use for insulin dosing, treatment decisions or as a safety alert. A forecast of recovery must never delay treating or rechecking a low."
+}

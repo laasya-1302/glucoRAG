@@ -124,6 +124,76 @@ class GlucoseRepository(context: Context) {
         savePersistedState(seedList)
     }
 
+    /**
+     * Seeds 24 readings simulating a declining trajectory into hypoglycemia
+     * (ending at ~52 mg/dL) for instant end-to-end testing of hypo model prediction & watch alarms.
+     */
+    @Synchronized
+    fun seedHypoHistory() {
+        val now = OffsetDateTime.now()
+        val seedList = mutableListOf<GlucoseReading>()
+        val startVal = 115.0
+        val endVal = 52.0
+
+        for (i in (MAX_HISTORY_CAPACITY - 1) downTo 0) {
+            val stepTime = now.minusMinutes((i * 15).toLong())
+            val formattedTime = stepTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+            val fraction = (MAX_HISTORY_CAPACITY - 1 - i).toDouble() / (MAX_HISTORY_CAPACITY - 1).toDouble()
+            val base = startVal + (endVal - startVal) * fraction
+            val noise = Random.nextDouble(-1.5, 1.5)
+            val glucose = (base + noise).coerceIn(35.0, 160.0)
+
+            val seq = sequenceCounter.incrementAndGet()
+            seedList.add(
+                GlucoseReading.create(
+                    sequence = seq,
+                    glucose = (Math.round(glucose * 10.0) / 10.0),
+                    source = GlucoseReading.SOURCE_SIMULATED,
+                    timestamp = formattedTime
+                )
+            )
+        }
+
+        _readings.value = seedList
+        savePersistedState(seedList)
+    }
+
+    /**
+     * Seeds 24 readings simulating a rising trajectory into hyperglycemia
+     * (ending at ~240 mg/dL) for instant end-to-end testing of hyper model prediction & watch alarms.
+     */
+    @Synchronized
+    fun seedHyperHistory() {
+        val now = OffsetDateTime.now()
+        val seedList = mutableListOf<GlucoseReading>()
+        val startVal = 120.0
+        val endVal = 240.0
+
+        for (i in (MAX_HISTORY_CAPACITY - 1) downTo 0) {
+            val stepTime = now.minusMinutes((i * 15).toLong())
+            val formattedTime = stepTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+            val fraction = (MAX_HISTORY_CAPACITY - 1 - i).toDouble() / (MAX_HISTORY_CAPACITY - 1).toDouble()
+            val base = startVal + (endVal - startVal) * fraction
+            val noise = Random.nextDouble(-2.0, 2.0)
+            val glucose = (base + noise).coerceIn(90.0, 350.0)
+
+            val seq = sequenceCounter.incrementAndGet()
+            seedList.add(
+                GlucoseReading.create(
+                    sequence = seq,
+                    glucose = (Math.round(glucose * 10.0) / 10.0),
+                    source = GlucoseReading.SOURCE_SIMULATED,
+                    timestamp = formattedTime
+                )
+            )
+        }
+
+        _readings.value = seedList
+        savePersistedState(seedList)
+    }
+
     private fun loadPersistedState() {
         val lastSeq = prefs.getLong(KEY_LAST_SEQUENCE, 0L)
         sequenceCounter.set(lastSeq)

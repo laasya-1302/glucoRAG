@@ -7,7 +7,11 @@ import ForecastTable from './components/ForecastTable';
 import ClinicalAlertCard from './components/ClinicalAlertCard';
 import ModelInfoCard from './components/ModelInfoCard';
 import ErrorBanner from './components/ErrorBanner';
-import { fetchHealth, fetchModelInfo, predictGlucose } from './services/api';
+import RequestInspector from './components/RequestInspector';
+import LoginPage from './components/LoginPage';
+import ProfileCompletionModal from './components/ProfileCompletionModal';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { fetchHealth, fetchModelInfo, forecastV1 } from './services/api';
 import { bleClient } from './services/ble';
 
 const DEFAULT_READINGS = [
@@ -21,15 +25,30 @@ function getLocalDateTimeString() {
   return now.toISOString().slice(0, 16);
 }
 
-export default function App() {
+function MainApp() {
+  const { user, isLoading: isAuthLoading, isProfileModalOpen, setIsProfileModalOpen } = useAuth();
+
   const [readings, setReadings] = useState(DEFAULT_READINGS);
   const [latestTimestamp, setLatestTimestamp] = useState(getLocalDateTimeString());
-  const [selectedExperiment, setSelectedExperiment] = useState("gp_A");
+  const [selectedExperiment, setSelectedExperiment] = useState("e1_gpformer");
+
+  // Multimodal Inputs State
+  const [isInsulinOn, setIsInsulinOn] = useState(false);
+  const [isCarbsOn, setIsCarbsOn] = useState(false);
+  const [bolusSlots, setBolusSlots] = useState(Array(24).fill(''));
+  const [carbSlots, setCarbSlots] = useState(Array(24).fill(''));
+  const [basalRate, setBasalRate] = useState('');
+  const [basalStartTime, setBasalStartTime] = useState('');
+  const [isDemoActive, setIsDemoActive] = useState(false);
   
   // API State
   const [health, setHealth] = useState({ online: false });
   const [modelInfo, setModelInfo] = useState(null);
   const [predictionResult, setPredictionResult] = useState(null);
+  const [lastSentPayload, setLastSentPayload] = useState(null);
+  const [isDev, setIsDev] = useState(() => {
+    return typeof window !== 'undefined' && window.location.search.includes('dev=true');
+  });
   const [isLoading, setIsLoading] = useState(false);
   const [apiError, setApiError] = useState(null);
   const [formError, setFormError] = useState(null);
@@ -71,7 +90,7 @@ export default function App() {
   };
 
   /**
-   * Helper to trigger GPFormer model inference whenever 24 valid readings are present.
+   * Helper to trigger GPFormer model inference.
    */
   const runPrediction = useCallback(async (currentReadings, timestamp, experiment) => {
     const valid = currentReadings.map(r => parseFloat(r)).filter(n => !isNaN(n) && n >= 20 && n <= 600);
@@ -79,8 +98,60 @@ export default function App() {
 
     setIsLoading(true);
     setApiError(null);
+
+    // Compute slot timestamps for bolus and carbs using local wall-clock ISO (no UTC 'Z' offset shifting)
+    const baseDate = timestamp ? new Date(timestamp) : new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const formatLocalIso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+    const slotDts = [];
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(baseDate.getTime() - (23 - i) * 15 * 60000);
+      slotDts.push(formatLocalIso(d));
+    }
+
+    // Build bolus payload state: toggle OFF -> null; toggle ON, empty -> []; toggle ON, values -> list of events
+    let bolusPayload = null;
+    let basalPayload = null;
+    if (isInsulinOn) {
+      const events = [];
+      bolusSlots.forEach((val, idx) => {
+        const u = parseFloat(val);
+        if (!isNaN(u) && u > 0) {
+          events.push({ time: slotDts[idx], units: u });
+        }
+      });
+      bolusPayload = events; // [] if none given
+      basalPayload = basalRate !== '' && !isNaN(parseFloat(basalRate)) ? parseFloat(basalRate) : 0.9;
+    }
+
+    // Build carbs payload state: toggle OFF -> null; toggle ON, empty -> []; toggle ON, values -> list of events
+    let carbsPayload = null;
+    if (isCarbsOn) {
+      const events = [];
+      carbSlots.forEach((val, idx) => {
+        const g = parseFloat(val);
+        if (!isNaN(g) && g > 0) {
+          events.push({ time: slotDts[idx], carbs: g });
+        }
+      });
+      carbsPayload = events; // [] if none given
+    }
+
+    const payload = {
+      modelId: experiment,
+      readings: currentReadings,
+      units: "mg/dL",
+      bolus: bolusPayload,
+      basal: basalPayload,
+      carbs: carbsPayload,
+      grid: "manual",
+      latestTimestamp: timestamp
+    };
+    setLastSentPayload(payload);
+
     try {
-      const response = await predictGlucose(currentReadings, timestamp, experiment);
+      const response = await forecastV1(payload);
       setPredictionResult(response);
       setHealth({ online: true });
     } catch (err) {
@@ -88,13 +159,12 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isInsulinOn, isCarbsOn, bolusSlots, carbSlots, basalRate]);
 
   /**
    * Configures BLE callbacks and handles connection lifecycle.
    */
   useEffect(() => {
-    // 1. Connection status change listener
     bleClient.onStatusChange = (status) => {
       setBleStatus(status);
       if (status.state === 'connected') {
@@ -105,11 +175,9 @@ export default function App() {
       }
     };
 
-    // 2. Incoming single live reading listener (manual or simulated)
     bleClient.onReading = (readingMsg) => {
       if (!readingMsg || readingMsg.glucose == null) return;
 
-      // Duplicate check using sequence number
       if (readingMsg.sequence != null) {
         if (processedSequencesRef.current.has(readingMsg.sequence)) {
           return;
@@ -119,7 +187,6 @@ export default function App() {
 
       setLatestBleReading(readingMsg);
 
-      // Slide the 24-window: remove oldest (index 0), append new value at end (index 23)
       setReadings((prev) => {
         const nextList = [...prev.slice(1), String(readingMsg.glucose)];
         return nextList;
@@ -127,7 +194,6 @@ export default function App() {
 
       setBleHistoryCount(prev => prev + 1);
 
-      // Update timestamp if valid
       if (readingMsg.timestamp) {
         try {
           const parsed = new Date(readingMsg.timestamp);
@@ -136,17 +202,13 @@ export default function App() {
             const localFormatted = parsed.toISOString().slice(0, 16);
             setLatestTimestamp(localFormatted);
           }
-        } catch {
-          // Keep current timestamp
-        }
+        } catch {}
       }
 
-      // Re-run GPFormer inference automatically on live streaming reading
       const updatedWindow = [...readingsRef.current.slice(1), String(readingMsg.glucose)];
       runPrediction(updatedWindow, readingMsg.timestamp, selectedExperimentRef.current);
     };
 
-    // 3. Initial 24-reading transfer progress listener
     bleClient.onHistoryProgress = (progress) => {
       setTransferProgress(progress);
       if (progress.latestReading) {
@@ -154,12 +216,10 @@ export default function App() {
       }
     };
 
-    // 4. Initial 24-reading transfer completion listener
     bleClient.onHistoryComplete = ({ readings: transferredReadings, count }) => {
       setTransferProgress(null);
       if (!transferredReadings || transferredReadings.length === 0) return;
 
-      // Sort chronologically by sequence or timestamp
       const sorted = [...transferredReadings].sort((a, b) => {
         if (a.sequence != null && b.sequence != null) {
           return a.sequence - b.sequence;
@@ -167,12 +227,10 @@ export default function App() {
         return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
       });
 
-      // Populate input grid with exactly 24 readings
       const stringified = sorted.map(r => String(r.glucose));
       setReadings(stringified);
       setBleHistoryCount(count);
 
-      // Set latest reading from the 24th point
       const lastPoint = sorted[sorted.length - 1];
       if (lastPoint) {
         setLatestBleReading(lastPoint);
@@ -187,19 +245,16 @@ export default function App() {
         }
       }
 
-      // Mark all transferred sequences as processed
       sorted.forEach(r => {
         if (r.sequence != null) processedSequencesRef.current.add(r.sequence);
       });
 
-      // Trigger GPFormer prediction immediately with the fresh 24-reading history
       if (stringified.length === 24) {
         runPrediction(stringified, lastPoint?.timestamp, selectedExperimentRef.current);
       }
     };
 
     return () => {
-      // Cleanup event listeners
       bleClient.onStatusChange = null;
       bleClient.onReading = null;
       bleClient.onHistoryProgress = null;
@@ -208,22 +263,20 @@ export default function App() {
   }, [runPrediction]);
 
   // Connect BLE Device
-  const handleConnectBle = async () => {
+  const handleConnectBle = async (acceptAll = false) => {
     setIsConnecting(true);
     setBleStatus(prev => ({ ...prev, error: null }));
     try {
-      await bleClient.connect();
+      await bleClient.connect({ acceptAll });
     } catch (err) {
       setIsConnecting(false);
     }
   };
 
-  // Disconnect BLE
   const handleDisconnectBle = () => {
     bleClient.disconnect();
   };
 
-  // Request 24 History Readings from Android phone
   const handleRequestHistory = async () => {
     try {
       await bleClient.requestHistory();
@@ -232,7 +285,6 @@ export default function App() {
     }
   };
 
-  // Clear received history
   const handleClearBleHistory = () => {
     processedSequencesRef.current.clear();
     setLatestBleReading(null);
@@ -246,7 +298,6 @@ export default function App() {
     setFormError(null);
     setApiError(null);
 
-    // Validate 24 readings
     if (readings.length !== 24) {
       setFormError(`Exactly 24 readings required. Current count: ${readings.length}`);
       return;
@@ -272,14 +323,36 @@ export default function App() {
     await runPrediction(readings, latestTimestamp, selectedExperiment);
   };
 
+  // Auth loading state
+  if (isAuthLoading) {
+    return (
+      <div className="loading-screen">
+        <div className="spinner"></div>
+        <p>Loading GPFormer Forecasting System...</p>
+      </div>
+    );
+  }
+
+  // If user is not logged in, show clinical LoginPage
+  if (!user) {
+    return <LoginPage />;
+  }
+
   return (
     <div className="app-layout">
+      {/* Profile Completion / Edit Modal */}
+      <ProfileCompletionModal
+        isOpen={isProfileModalOpen || !user.profile_complete}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
+
       <Header
         selectedExp={selectedExperiment}
         onSelectExp={(exp) => setSelectedExperiment(exp)}
         availableExps={modelInfo?.available_experiments}
         healthStatus={health}
         onRefreshHealth={checkHealthAndModel}
+        onOpenProfile={() => setIsProfileModalOpen(true)}
       />
 
       <main className="main-content">
@@ -304,7 +377,7 @@ export default function App() {
           isConnecting={isConnecting}
         />
 
-        {/* Glucose Inputs */}
+        {/* Glucose & Multimodal Inputs */}
         <GlucoseInputForm
           readings={readings}
           setReadings={setReadings}
@@ -314,6 +387,20 @@ export default function App() {
           isLoading={isLoading}
           formError={formError}
           setFormError={setFormError}
+          isInsulinOn={isInsulinOn}
+          setIsInsulinOn={setIsInsulinOn}
+          isCarbsOn={isCarbsOn}
+          setIsCarbsOn={setIsCarbsOn}
+          bolusSlots={bolusSlots}
+          setBolusSlots={setBolusSlots}
+          carbSlots={carbSlots}
+          setCarbSlots={setCarbSlots}
+          basalRate={basalRate}
+          setBasalRate={setBasalRate}
+          basalStartTime={basalStartTime}
+          setBasalStartTime={setBasalStartTime}
+          isDemoActive={isDemoActive}
+          setIsDemoActive={setIsDemoActive}
         />
 
         {/* Prediction Results Section */}
@@ -321,9 +408,10 @@ export default function App() {
           <section className="results-section">
             <ClinicalAlertCard
               alert={predictionResult.clinical_alert}
-              experimentName={predictionResult.experiment_description}
+              experimentName={predictionResult.model_name || predictionResult.experiment_description}
               disclaimer={predictionResult.disclaimer}
               mode={predictionResult.mode}
+              inputsUsed={predictionResult.inputs_used}
             />
 
             <ForecastChart
@@ -335,6 +423,17 @@ export default function App() {
             <ForecastTable
               forecast={predictionResult.forecast}
               units={predictionResult.units}
+              mode={predictionResult.mode}
+              inputsUsed={predictionResult.inputs_used}
+              modelName={predictionResult.model_name}
+              checkpointHashes={predictionResult.checkpoint_sha256}
+            />
+
+            <RequestInspector
+              requestPayload={lastSentPayload}
+              predictionResult={predictionResult}
+              isDev={isDev}
+              onToggleDev={() => setIsDev(prev => !prev)}
             />
           </section>
         )}
@@ -356,3 +455,10 @@ export default function App() {
   );
 }
 
+export default function App() {
+  return (
+    <AuthProvider>
+      <MainApp />
+    </AuthProvider>
+  );
+}

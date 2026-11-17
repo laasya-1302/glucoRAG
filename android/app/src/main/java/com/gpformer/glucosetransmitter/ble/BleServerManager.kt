@@ -213,20 +213,42 @@ class BleServerManager(
             .setTimeout(0) // Advertise indefinitely until explicitly stopped
             .build()
 
-//        val data = AdvertiseData.Builder()
-//            .setIncludeDeviceName(true)
-//            .addServiceUuid(ParcelUuid(BleConstants.SERVICE_UUID))
-//            .build()
+        // 1. Primary Advertising Packet (Strict 31-byte legacy BLE limit):
+        // Connectable Flags (3 bytes) + 128-bit Service UUID (18 bytes) = 21 bytes total (safely <= 31 bytes).
+        // Device name MUST NOT be included in the primary packet with a 128-bit UUID, or it exceeds 31 bytes.
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
+            .setIncludeTxPowerLevel(false)
             .addServiceUuid(ParcelUuid(BleConstants.SERVICE_UUID))
             .build()
 
+        // 2. Scan Response Packet (Separate 31-byte budget):
+        // Device name is safely placed in the scan response so Chrome can display it upon scanning.
+        val adapterName = try {
+            bluetoothAdapter.name ?: ""
+        } catch (e: SecurityException) {
+            ""
+        }
+        val nameBytes = adapterName.toByteArray(StandardCharsets.UTF_8).size
+        val scanResponseBuilder = AdvertiseData.Builder()
+        if (nameBytes in 1..29) {
+            scanResponseBuilder.setIncludeDeviceName(true)
+        }
+        val scanResponse = scanResponseBuilder.build()
+
         try {
-            advertiser?.startAdvertising(settings, data, advertiseCallback)
+            advertiser?.startAdvertising(settings, data, scanResponse, advertiseCallback)
         } catch (e: SecurityException) {
             Log.e(tag, "Missing BLUETOOTH_ADVERTISE permission: ${e.message}")
             _advertisingState.value = AdvertisingStatus.Error("Missing Bluetooth Advertise permission.")
+        } catch (e: Exception) {
+            Log.w(tag, "startAdvertising with scan response failed, retrying without scan response: ${e.message}")
+            try {
+                advertiser?.startAdvertising(settings, data, advertiseCallback)
+            } catch (e2: Exception) {
+                Log.e(tag, "startAdvertising fallback failed: ${e2.message}")
+                _advertisingState.value = AdvertisingStatus.Error("Advertising failed: ${e2.message}")
+            }
         }
     }
 

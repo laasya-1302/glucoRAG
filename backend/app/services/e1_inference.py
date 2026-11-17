@@ -1,9 +1,10 @@
 import os
 import sys
 import json
+import hashlib
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import Optional, Any
+from typing import Optional, Any, Union
 import numpy as np
 import torch
 import torch.nn as nn
@@ -27,6 +28,16 @@ EVAL_HORIZONS = [30, 60, 90, 120]
 POS_MAP = {15: 0, 30: 1, 45: 2, 60: 3, 75: 4, 90: 5, 105: 6, 120: 7}
 CLASSES = ("HYPO", "NORMAL", "HYPER")
 EVENT_CLIP = 3.0
+
+class PreprocessResult(tuple):
+    def __new__(cls, x, mode, inputs_used, inspector=None):
+        return super().__new__(cls, (x, mode, inputs_used))
+
+    def __init__(self, x, mode, inputs_used, inspector=None):
+        self.x = x
+        self.mode = mode
+        self.inputs_used = inputs_used
+        self.inspector = inspector or {}
 
 class GPBackbone(nn.Module):
     """
@@ -98,6 +109,7 @@ class E1InferenceService:
         os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.models: dict[str, Net] = {}
+        self.checkpoint_hashes: dict[str, str] = {}
         self.scalers: dict[str, Any] = {}
         self.frozen_eval: dict[str, Any] = {}
         self._is_loaded = False
@@ -123,6 +135,13 @@ class E1InferenceService:
             if not ckpt_path.exists():
                 raise FileNotFoundError(f"E1 checkpoint {s} not found at {ckpt_path}")
             
+            # Compute sha256
+            h = hashlib.sha256()
+            with open(ckpt_path, "rb") as bf:
+                while chunk := bf.read(65536):
+                    h.update(chunk)
+            self.checkpoint_hashes[s] = h.hexdigest()
+
             bb = GPBackbone()
             net = Net(bb, residual=True).to(self.device)
             ckpt = torch.load(ckpt_path, map_location=self.device, weights_only=False)
@@ -133,39 +152,78 @@ class E1InferenceService:
 
         self._is_loaded = True
 
+    def warmup(self):
+        """Warms up and verifies all 3 ensemble checkpoints are loaded."""
+        if not self._is_loaded:
+            self.load_artifacts()
+
     def is_ready(self) -> bool:
         return self._is_loaded and len(self.models) == 3
 
     def preprocess(
         self,
         readings: list[float],
-        latest_dt: datetime,
+        slot_dts: Union[list[datetime], datetime],
+        bolus: Optional[list[dict]] = None,
+        basal: Optional[Union[float, list[dict], dict]] = None,
+        carbs: Optional[list[dict]] = None,
         insulin_events: Optional[list[dict]] = None,
         carb_events: Optional[list[dict]] = None
-    ) -> tuple[np.ndarray, str]:
+    ) -> tuple[np.ndarray, str, list[str]]:
         """
-        Builds the (1, 24, 9) feature tensor using the exact training-time preprocessing:
-        0: glucose (scaled by (g - mu) / sd)
-        1: sin_tod (sin of time-of-day in minutes)
-        2: cos_tod (cos of time-of-day in minutes)
-        3: bolus (clip(bolus / cap, 0, 3.0))
-        4: basal (clip(basal / cap, 0, 3.0))
-        5: carb (clip(carb / cap, 0, 3.0))
-        6: m_bolus (1.0 if present, else 0.0)
-        7: m_basal (1.0 if present, else 0.0)
-        8: m_carb (1.0 if present, else 0.0)
+        Builds the (1, 24, 9) feature tensor using the exact model contract:
+        - 24 slots, 15 minutes apart, oldest -> newest (slot 23 is now).
+        - Channels:
+          0: glucose = (mg/dL - mean) / std
+          1: sin(2*pi*tod/1440)
+          2: cos(2*pi*tod/1440)
+          3: bolus = clip(units_in_slot / event_caps.bolus_u, 0, 3)
+          4: basal = clip(rate_U_per_h / event_caps.basal_uh, 0, 3)
+          5: carbs = clip(grams_in_slot / event_caps.carb_g, 0, 3)
+          6, 7, 8: availability masks for bolus, basal, carbs
+        - 3 states per input:
+          * None: not available (value 0, mask 0)
+          * []: available, none given (mask 1, value 0)
+          * list: available with events (mask 1, values assigned to slots)
+        - Slot mapping rule:
+          * Event at time t goes into FIRST slot where t_slot >= t (12:07 -> 12:15 slot, never 12:00)
+          * Events at latest reading go into last slot (23)
+          * Events > latest reading, or < t_0 - 15min, are rejected with ValueError
+          * Basal: latest rate record at or before each slot, valid up to 24h
+        - Mode:
+          * If bolus, basal, carbs are all None -> "cgm_only" (threshold key "E1_cgmonly")
+          * If any supplied -> "multimodal" (threshold key "E1")
         """
+        if isinstance(slot_dts, datetime):
+            start_dt = slot_dts - timedelta(minutes=(IN_LEN - 1) * 15)
+            slot_dts = [start_dt + timedelta(minutes=i * 15) for i in range(IN_LEN)]
+
+        if bolus is None and basal is None and insulin_events:
+            bolus_list = []
+            basal_list = []
+            for ev in insulin_events:
+                t = ev.get("type", "bolus")
+                if t == "basal":
+                    basal_list.append(ev)
+                else:
+                    bolus_list.append(ev)
+            bolus = bolus_list
+            basal = basal_list if basal_list else None
+        if carbs is None and carb_events:
+            carbs = carb_events
+
         if len(readings) != IN_LEN:
             raise ValueError(f"E1 GPFormer requires exactly {IN_LEN} readings, got {len(readings)}.")
+        if len(slot_dts) != IN_LEN:
+            raise ValueError(f"E1 GPFormer requires exactly {IN_LEN} slot timestamps, got {len(slot_dts)}.")
 
         mu = self.scalers["glucose"]["mean"]
         sd = self.scalers["glucose"]["std"]
         caps = self.scalers["event_caps"]
 
-        # Build timestamps for the 24 intervals
-        # Reading 23 corresponds to latest_dt, reading 0 is latest_dt - 23*15min
-        start_dt = latest_dt - timedelta(minutes=(IN_LEN - 1) * 15)
-        step_dts = [start_dt + timedelta(minutes=i * 15) for i in range(IN_LEN)]
+        t_first = slot_dts[0]
+        t_last = slot_dts[-1]
+        earliest_allowed = t_first - timedelta(minutes=15)
 
         x = np.zeros((1, IN_LEN, N_FEAT), dtype=np.float32)
 
@@ -173,83 +231,197 @@ class E1InferenceService:
         g_arr = np.asarray(readings, dtype=np.float32)
         x[0, :, 0] = (g_arr - mu) / sd
 
-        # 1, 2: Sin & Cos Time of Day
-        tod_minutes = np.array([dt.hour * 60.0 + dt.minute + dt.second / 60.0 for dt in step_dts], dtype=np.float32)
+        # 1, 2: Sin & Cos Time of Day (tod = minutes since midnight)
+        tod_minutes = np.array([dt.hour * 60.0 + dt.minute + dt.second / 60.0 for dt in slot_dts], dtype=np.float32)
         ang = tod_minutes / 1440.0 * 2 * np.pi
         x[0, :, 1] = np.sin(ang)
         x[0, :, 2] = np.cos(ang)
 
-        has_events = False
+        def parse_dt(val: Any) -> datetime:
+            if isinstance(val, datetime):
+                return val.replace(tzinfo=None)
+            s = str(val).strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            return datetime.fromisoformat(s).replace(tzinfo=None)
 
-        # Optional multimodal event aggregation into 15-minute buckets
-        def find_bucket(event_dt: datetime) -> Optional[int]:
-            diff_mins = (event_dt - start_dt).total_seconds() / 60.0
-            idx = int(round(diff_mins / 15.0))
-            if 0 <= idx < IN_LEN:
-                return idx
-            return None
+        slot_mapping = []
+        rejected_events = []
 
-        if insulin_events:
-            for ev in insulin_events:
-                try:
-                    ts_str = ev.get("timestamp")
-                    if not ts_str:
-                        continue
-                    edt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                    b_idx = find_bucket(edt)
-                    if b_idx is not None:
-                        # Check bolus vs basal
-                        units = float(ev.get("units", ev.get("value", 0.0)))
-                        ev_type = str(ev.get("type", "bolus")).lower()
-                        if "basal" in ev_type:
-                            x[0, b_idx, 4] += units
-                            x[0, b_idx, 7] = 1.0 # m_basal
-                        else:
-                            x[0, b_idx, 3] += units
-                            x[0, b_idx, 6] = 1.0 # m_bolus
-                        has_events = True
-                except Exception:
-                    continue
+        def assign_slot(event_dt: datetime, ev_type: str, raw_ev: Any, amount: float, unit: str) -> int:
+            if event_dt > t_last:
+                err_msg = f"Event time {event_dt.isoformat()} is after latest reading time {t_last.isoformat()}."
+                rejected_events.append({"type": ev_type, "event": raw_ev, "reason": err_msg})
+                raise ValueError(err_msg)
+            if event_dt < earliest_allowed:
+                err_msg = f"Event time {event_dt.isoformat()} is earlier than input window boundary {earliest_allowed.isoformat()}."
+                rejected_events.append({"type": ev_type, "event": raw_ev, "reason": err_msg})
+                raise ValueError(err_msg)
+            for idx, s_dt in enumerate(slot_dts):
+                if s_dt >= event_dt:
+                    slot_mapping.append({
+                        "type": ev_type,
+                        "event_time": event_dt.isoformat(),
+                        "slot_index": idx,
+                        "slot_time": s_dt.isoformat(),
+                        "amount": amount,
+                        "unit": unit
+                    })
+                    return idx
+            slot_mapping.append({
+                "type": ev_type,
+                "event_time": event_dt.isoformat(),
+                "slot_index": 23,
+                "slot_time": slot_dts[23].isoformat(),
+                "amount": amount,
+                "unit": unit
+            })
+            return 23
 
-        if carb_events:
-            for ev in carb_events:
-                try:
-                    ts_str = ev.get("timestamp")
-                    if not ts_str:
-                        continue
-                    edt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                    b_idx = find_bucket(edt)
-                    if b_idx is not None:
-                        carbs = float(ev.get("carbs", ev.get("grams", ev.get("value", 0.0))))
-                        x[0, b_idx, 5] += carbs
-                        x[0, b_idx, 8] = 1.0 # m_carb
-                        has_events = True
-                except Exception:
-                    continue
+        inputs_used = ["cgm"]
 
-        if has_events:
-            # Scale and clip event channels
-            x[0, :, 3] = np.clip(x[0, :, 3] / caps["bolus_u"], 0.0, EVENT_CLIP)
-            x[0, :, 4] = np.clip(x[0, :, 4] / caps["basal_uh"], 0.0, EVENT_CLIP)
-            x[0, :, 5] = np.clip(x[0, :, 5] / caps["carb_g"], 0.0, EVENT_CLIP)
-            mode = "E1"
+        # Bolus handling
+        if bolus is not None:
+            inputs_used.append("bolus")
+            x[0, :, 6] = 1.0 # m_bolus mask
+            raw_bolus = np.zeros(IN_LEN, dtype=np.float32)
+            for ev in bolus:
+                ev_dt = parse_dt(ev.get("time") or ev.get("timestamp"))
+                u = float(ev.get("units") if ev.get("units") is not None else ev.get("value", 0.0))
+                if u < 0.0:
+                    raise ValueError(f"Negative bolus amount: {u} U")
+                if u > 40.0:
+                    raise ValueError(f"Bolus amount exceeds maximum limit of 40 U: {u} U")
+                s_idx = assign_slot(ev_dt, "bolus", ev, u, "U")
+                raw_bolus[s_idx] += u
+            x[0, :, 3] = np.clip(raw_bolus / caps["bolus_u"], 0.0, EVENT_CLIP)
+
+        # Basal handling
+        if basal is not None:
+            inputs_used.append("basal")
+            raw_basal = np.zeros(IN_LEN, dtype=np.float32)
+            if isinstance(basal, (int, float)):
+                rate = float(basal)
+                if rate < 0.0 or rate > 5.0:
+                    raise ValueError(f"Basal rate must be between 0 and 5 U/h, got {rate}")
+                raw_basal[:] = rate
+                x[0, :, 7] = 1.0
+            elif isinstance(basal, list) and len(basal) == 0:
+                # Available with nothing given -> mask 1, values 0
+                x[0, :, 7] = 1.0
+            else:
+                # List or dict of rate records
+                records = basal if isinstance(basal, list) else [basal]
+                parsed_recs = []
+                for rec in records:
+                    rate = float(rec.get("rate") if rec.get("rate") is not None else rec.get("value", 0.0))
+                    if rate < 0.0 or rate > 5.0:
+                        raise ValueError(f"Basal rate must be between 0 and 5 U/h, got {rate}")
+                    st_str = rec.get("start") or rec.get("started_at") or rec.get("timestamp")
+                    start_dt = parse_dt(st_str) if st_str else (t_last - timedelta(hours=6))
+                    end_str = rec.get("end") or rec.get("ended_at")
+                    end_dt = parse_dt(end_str) if end_str else None
+                    parsed_recs.append((start_dt, end_dt, rate))
+
+                # For each slot, find latest basal record at or before that slot, valid up to 24h
+                for idx, s_dt in enumerate(slot_dts):
+                    valid_match = None
+                    for st_dt, end_dt, rate in parsed_recs:
+                        if st_dt <= s_dt:
+                            if end_dt is None or s_dt <= end_dt:
+                                if (s_dt - st_dt) <= timedelta(hours=24):
+                                    if valid_match is None or st_dt > valid_match[0]:
+                                        valid_match = (st_dt, rate)
+                    if valid_match is not None:
+                        raw_basal[idx] = valid_match[1]
+                        x[0, idx, 7] = 1.0 # m_basal mask = 1
+                    else:
+                        raw_basal[idx] = 0.0
+                        x[0, idx, 7] = 0.0 # m_basal mask = 0 if none
+            x[0, :, 4] = np.clip(raw_basal / caps["basal_uh"], 0.0, EVENT_CLIP)
+
+        # Carbs handling
+        if carbs is not None:
+            inputs_used.append("carbs")
+            x[0, :, 8] = 1.0 # m_carb mask
+            raw_carbs = np.zeros(IN_LEN, dtype=np.float32)
+            for ev in carbs:
+                ev_dt = parse_dt(ev.get("time") or ev.get("timestamp"))
+                g = float(ev.get("carbs") if ev.get("carbs") is not None else (ev.get("grams") if ev.get("grams") is not None else ev.get("value", 0.0)))
+                if g < 0.0:
+                    raise ValueError(f"Negative carbohydrate amount: {g} g")
+                if g > 370.0:
+                    raise ValueError(f"Carbohydrate amount exceeds maximum limit of 370 g: {g} g")
+                s_idx = assign_slot(ev_dt, "carbs", ev, g, "g")
+                raw_carbs[s_idx] += g
+            x[0, :, 5] = np.clip(raw_carbs / caps["carb_g"], 0.0, EVENT_CLIP)
+
+        if bolus is None and basal is None and carbs is None:
+            mode = "cgm_only"
         else:
-            mode = "E1_cgmonly"
+            mode = "multimodal"
 
-        return x, mode
+        inspector_data = {
+            "channel_sums": {
+                "channel_3_bolus_scaled_sum": round(float(np.sum(x[0, :, 3])), 4),
+                "channel_4_basal_scaled_sum": round(float(np.sum(x[0, :, 4])), 4),
+                "channel_5_carbs_scaled_sum": round(float(np.sum(x[0, :, 5])), 4),
+                "channel_6_mask_bolus_sum": round(float(np.sum(x[0, :, 6])), 4),
+                "channel_7_mask_basal_sum": round(float(np.sum(x[0, :, 7])), 4),
+                "channel_8_mask_carbs_sum": round(float(np.sum(x[0, :, 8])), 4),
+            },
+            "event_to_slot_mapping": slot_mapping,
+            "rejected_events": rejected_events,
+            "mode": mode,
+            "inputs_used": inputs_used
+        }
+
+        return PreprocessResult(x, mode, inputs_used, inspector=inspector_data)
 
     @torch.inference_mode()
     def predict(
         self,
         readings: list[float],
         latest_dt: datetime,
+        slot_dts: Optional[list[datetime]] = None,
+        bolus: Optional[list[dict]] = None,
+        basal: Optional[Union[float, list[dict], dict]] = None,
+        carbs: Optional[list[dict]] = None,
         insulin_events: Optional[list[dict]] = None,
         carb_events: Optional[list[dict]] = None
     ) -> dict[str, Any]:
         """
         Executes the 3-model ensemble inference and applies frozen calibration.
         """
-        x_np, mode = self.preprocess(readings, latest_dt, insulin_events, carb_events)
+        if bolus is None and basal is None and insulin_events:
+            bolus_list = []
+            basal_list = []
+            for ev in insulin_events:
+                t = ev.get("type", "bolus")
+                if t == "basal":
+                    basal_list.append(ev)
+                else:
+                    bolus_list.append(ev)
+            bolus = bolus_list
+            basal = basal_list if basal_list else None
+        if carbs is None and carb_events:
+            carbs = carb_events
+
+        if slot_dts is None:
+            start_dt = latest_dt - timedelta(minutes=(IN_LEN - 1) * 15)
+            slot_dts = [start_dt + timedelta(minutes=i * 15) for i in range(IN_LEN)]
+
+        prep_res = self.preprocess(
+            readings=readings,
+            slot_dts=slot_dts,
+            bolus=bolus,
+            basal=basal,
+            carbs=carbs
+        )
+        x_np = prep_res.x if hasattr(prep_res, "x") else prep_res[0]
+        mode = prep_res.mode if hasattr(prep_res, "mode") else prep_res[1]
+        inputs_used = prep_res.inputs_used if hasattr(prep_res, "inputs_used") else prep_res[2]
+        inspector_data = getattr(prep_res, "inspector", {})
         x_tensor = torch.from_numpy(x_np).to(self.device)
 
         q_list = []
@@ -271,11 +443,12 @@ class E1InferenceService:
         p_ens = np.mean(p_list, axis=0) # (8, 3)
 
         # Calibration lookup from frozen_eval_v1.json
-        calib_dict = self.frozen_eval.get(mode, self.frozen_eval.get("E1_cgmonly", {}))
+        calib_key = "E1_cgmonly" if mode == "cgm_only" else "E1"
+        calib_dict = self.frozen_eval.get(calib_key, self.frozen_eval.get("E1_cgmonly", {}))
 
         forecast_steps = []
-        worst_alert_status = "NORMAL"
-        worst_alert_horizon = None
+        forecast_origin = latest_dt.isoformat()
+        now_mgdl = float(readings[-1])
 
         for step_idx in range(OUT_LEN):
             horizon_mins = (step_idx + 1) * 15
@@ -287,17 +460,22 @@ class E1InferenceService:
             raw_hi = float(q_vals[4])
             med = float(q_vals[2])
 
-            # Apply calibration for 30, 60, 90, 120 or interpolated for intermediate steps
+            is_validated = horizon_mins in EVAL_HORIZONS
             h_key = str(horizon_mins)
-            if h_key in calib_dict:
+
+            if is_validated and h_key in calib_dict:
                 info_h = calib_dict[h_key]
                 lo_shift = float(info_h["band"]["lo_shift"])
                 hi_shift = float(info_h["band"]["hi_shift"])
                 hypo_thr = float(info_h["hypo"]["thr"])
                 hyper_thr = float(info_h["hyper"]["thr"])
+                calib_thresholds = {
+                    "hypo": round(hypo_thr, 4),
+                    "hyper": round(hyper_thr, 4)
+                }
             else:
-                # Interpolate shifts from nearest evaluation horizons
-                # 15m borrows 30m; 45m borrows (30+60)/2; 75m borrows (60+90)/2; 105m borrows (90+120)/2
+                # Intermediate horizons (+15, +45, +75, +105) are NOT validated:
+                # Use nearest shift for display band, but NO alert thresholds and NO alert
                 if horizon_mins < 30:
                     ref = calib_dict.get("30", {})
                 elif horizon_mins < 60:
@@ -309,12 +487,12 @@ class E1InferenceService:
                 
                 lo_shift = float(ref.get("band", {}).get("lo_shift", 0.0))
                 hi_shift = float(ref.get("band", {}).get("hi_shift", 0.0))
-                hypo_thr = float(ref.get("hypo", {}).get("thr", 0.10))
-                hyper_thr = float(ref.get("hyper", {}).get("thr", 0.35))
+                hypo_thr = None
+                hyper_thr = None
+                calib_thresholds = None
 
             calib_lo = round(raw_lo + lo_shift, 1)
             calib_hi = round(raw_hi + hi_shift, 1)
-            # Ensure proper low <= high ordering
             if calib_lo > calib_hi:
                 calib_lo, calib_hi = calib_hi, calib_lo
 
@@ -322,25 +500,37 @@ class E1InferenceService:
             normal_prob = float(p_vals[1])
             hyper_prob = float(p_vals[2])
 
-            # Risk classification based on frozen evaluation calibrated threshold
-            if hypo_prob >= hypo_thr:
-                risk_class = "HYPO"
-                if worst_alert_status != "HYPO_RISK":
-                    worst_alert_status = "HYPO_RISK"
-                    worst_alert_horizon = horizon_mins
-            elif hyper_prob >= hyper_thr:
-                risk_class = "HYPER"
-                if worst_alert_status == "NORMAL":
-                    worst_alert_status = "HYPER_RISK"
-                    worst_alert_horizon = horizon_mins
+            # 1. Forecast class derived STRICTLY from MEDIAN:
+            # low < 70, normal 70-180 inclusive, high > 180
+            if med < 70.0:
+                f_class = "low"
+                p_risk = "HYPO"
+            elif med <= 180.0:
+                f_class = "normal"
+                p_risk = "NORMAL"
             else:
-                risk_class = "NORMAL"
+                f_class = "high"
+                p_risk = "HYPER"
+
+            # 2. Separate alert derived ONLY from frozen thresholds on validated horizons:
+            if is_validated and hypo_thr is not None and hyper_thr is not None:
+                if hypo_prob >= hypo_thr:
+                    alert = "Possible low glucose"
+                elif hyper_prob >= hyper_thr:
+                    alert = "Possible high glucose"
+                else:
+                    alert = None
+            else:
+                alert = None
 
             forecast_steps.append({
                 "step": step_idx + 1,
                 "horizon_minutes": horizon_mins,
                 "timestamp": step_dt.isoformat(),
-                "glucose_median": round(med, 1),
+                "median": round(med, 1),
+                "glucose_median": round(med, 1), # backward compatibility
+                "lo": calib_lo,
+                "hi": calib_hi,
                 "quantiles": {
                     "q10": round(float(q_vals[0]), 1),
                     "q25": round(float(q_vals[1]), 1),
@@ -353,39 +543,60 @@ class E1InferenceService:
                     "high_q90": calib_hi,
                     "bandwidth": round(calib_hi - calib_lo, 1)
                 },
+                "p_hypo": round(hypo_prob, 4),
+                "p_normal": round(normal_prob, 4),
+                "p_hyper": round(hyper_prob, 4),
                 "risk_probabilities": {
                     "hypo": round(hypo_prob, 4),
                     "normal": round(normal_prob, 4),
                     "hyper": round(hyper_prob, 4)
                 },
-                "predicted_risk_class": risk_class,
-                "calibrated_thresholds": {
-                    "hypo": round(hypo_thr, 4),
-                    "hyper": round(hyper_thr, 4)
-                }
+                "forecast_class": f_class,
+                "predicted_risk_class": p_risk, # backward compatibility
+                "alert": alert,
+                "calibrated_thresholds": calib_thresholds,
+                "is_validated": is_validated
             })
 
-        if worst_alert_status == "HYPO_RISK":
-            alert_msg = f"HYPO RISK: Low glucose (< 70 mg/dL) predicted by +{worst_alert_horizon} min."
-        elif worst_alert_status == "HYPER_RISK":
-            alert_msg = f"HYPER RISK: High glucose (> 180 mg/dL) predicted by +{worst_alert_horizon} min."
+        hypo_steps = [s for s in forecast_steps if s["horizon_minutes"] in EVAL_HORIZONS and s.get("alert") == "Possible low glucose"]
+        hyper_steps = [s for s in forecast_steps if s["horizon_minutes"] in EVAL_HORIZONS and s.get("alert") == "Possible high glucose"]
+        if hypo_steps:
+            h_min = hypo_steps[0]["horizon_minutes"]
+            overall_alert = {
+                "status": "HYPO_RISK",
+                "message": f"Possible low glucose detected at +{h_min} min.",
+                "alert_horizon_minutes": h_min
+            }
+        elif hyper_steps:
+            h_min = hyper_steps[0]["horizon_minutes"]
+            overall_alert = {
+                "status": "HYPER_RISK",
+                "message": f"Possible high glucose detected at +{h_min} min.",
+                "alert_horizon_minutes": h_min
+            }
         else:
-            alert_msg = "NORMAL: Stable glucose excursion predicted across the 2-hour forecast window."
+            overall_alert = {
+                "status": "NORMAL",
+                "message": "No immediate hypo/hyperglycemic risk flags triggered.",
+                "alert_horizon_minutes": None
+            }
 
         return {
             "mode": mode,
+            "inputs_used": inputs_used,
+            "forecast_origin": forecast_origin,
+            "now_mgdl": now_mgdl,
             "forecast": forecast_steps,
-            "clinical_alert": {
-                "status": worst_alert_status,
-                "message": alert_msg,
-                "alert_horizon_minutes": worst_alert_horizon
-            },
+            "clinical_alert": overall_alert,
+            "inspector": inspector_data,
             "ensemble_seeds": ["s42", "s123", "s2026"],
+            "model_name": "E1 Multimodal GPFormer",
             "model_version": "E1 Multimodal GPFormer (3-Seed Ensemble)",
+            "checkpoint_sha256": self.checkpoint_hashes,
             "disclaimer": (
-                "EXPERIMENTAL MODEL PREDICTION ONLY. Forecasts are generated by a research neural network "
-                "and must not be used as clinical diagnostic criteria, CGM replacement, or insulin dosing guidance. "
-                "Always verify readings with an approved medical CGM or fingerstick glucometer."
+                "Research prototype. Not a medical device. Do not use for insulin dosing, "
+                "treatment decisions or as a safety alert. A forecast of recovery must never "
+                "delay treating or rechecking a low."
             )
         }
 

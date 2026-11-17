@@ -42,13 +42,18 @@ class PredictRequest(BaseModel):
 
 class ForecastV1Request(BaseModel):
     model_id: Optional[str] = Field("e1_gpformer", description="'e1_gpformer', 'experiment_a', or 'experiment_b'")
-    readings: list[Union[float, GlucoseReadingItem]] = Field(
+    readings: list[Union[float, dict, GlucoseReadingItem]] = Field(
         ...,
         description="24 chronological glucose readings, either as numbers or objects with glucose and timestamp."
     )
+    units: Optional[str] = Field("mg/dL", description="Glucose units, default mg/dL")
+    bolus: Optional[list[Any]] = Field(None, description="Bolus events list, empty list for available none, null for unavailable")
+    basal: Optional[Union[float, list[Any], dict]] = Field(None, description="Basal rate or records, null for unavailable, [] for available none")
+    carbs: Optional[list[Any]] = Field(None, description="Carb events list, empty list for available none, null for unavailable")
+    grid: Optional[Literal["manual", "clock"]] = Field("manual", description="'manual' (own timestamps) or 'clock' (resampled)")
     latest_timestamp: Optional[str] = Field(None, description="ISO 8601 timestamp for the 24th reading")
-    insulin_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(default_factory=list)
-    carb_events: Optional[list[Union[dict, CarbEventItem]]] = Field(default_factory=list)
+    insulin_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(None)
+    carb_events: Optional[list[Union[dict, CarbEventItem]]] = Field(None)
 
 class QuantileDict(BaseModel):
     q10: float
@@ -71,7 +76,15 @@ class ForecastStep(BaseModel):
     step: int = Field(..., description="Step index (1 to 8)")
     horizon_minutes: int = Field(..., description="Forecast horizon in minutes (+15, +30, ..., +120)")
     timestamp: str = Field(..., description="ISO 8601 timestamp for this forecast point")
+    median: Optional[float] = Field(None, description="Median glucose prediction in mg/dL")
     glucose_median: float = Field(..., description="Median glucose prediction (50th percentile) in mg/dL")
+    lo: Optional[float] = Field(None, description="Calibrated lower uncertainty bound (q10)")
+    hi: Optional[float] = Field(None, description="Calibrated upper uncertainty bound (q90)")
+    p_hypo: Optional[float] = Field(None, description="Calibrated probability of hypoglycemia (< 70 mg/dL)")
+    p_normal: Optional[float] = Field(None, description="Calibrated probability of euglycemia (70-180 mg/dL)")
+    p_hyper: Optional[float] = Field(None, description="Calibrated probability of hyperglycemia (> 180 mg/dL)")
+    forecast_class: Optional[Literal["low", "normal", "high"]] = Field(None, description="Derived strictly from median: low <70, normal 70-180, high >180")
+    alert: Optional[str] = Field(None, description="Alert from frozen thresholds: 'Possible low glucose' / 'Possible high glucose' / null")
     quantiles: QuantileDict
     uncertainty_band: UncertaintyBand
     risk_probabilities: RiskProbabilities
@@ -117,7 +130,11 @@ class ForecastV1Response(BaseModel):
     model_id: str
     model_name: str
     mode: str
+    inputs_used: Optional[list[str]] = Field(default_factory=lambda: ["cgm"])
     units: str = "mg/dL"
+    forecast_origin: Optional[str] = None
+    now_mgdl: Optional[float] = None
+    checkpoint_sha256: Optional[dict[str, str]] = None
     input_summary: InputSummary
     forecast_30m: Optional[float] = None
     forecast_60m: Optional[float] = None
@@ -126,6 +143,7 @@ class ForecastV1Response(BaseModel):
     forecast: list[ForecastStep]
     horizons_summary: dict[str, HorizonSummary]
     clinical_alert: ClinicalAlert
+    inspector: Optional[dict[str, Any]] = None
     model_version: str
     disclaimer: str
 

@@ -38,9 +38,9 @@ export default function ForecastChart({ historicalReadings, forecastData, units 
       minuteOffset: mins,
       historical: isNaN(num) ? null : num,
       predictedMedian: idx === 23 ? num : null, // Connect at current point
+      uncertaintyRange: idx === 23 && !isNaN(num) ? [num, num] : null,
       q10: null,
       q90: null,
-      qRange: null,
       isForecast: false,
       step: idx + 1
     });
@@ -50,22 +50,25 @@ export default function ForecastChart({ historicalReadings, forecastData, units 
   if (forecastData && forecastData.length > 0) {
     forecastData.forEach((step) => {
       const label = `+${step.horizon_minutes}m`;
-      const q10 = step.uncertainty_band.low_q10;
-      const q90 = step.uncertainty_band.high_q90;
+      const q10 = step.lo ?? step.uncertainty_band?.low_q10;
+      const q90 = step.hi ?? step.uncertainty_band?.high_q90;
+      const med = step.median ?? step.glucose_median;
+      const fClass = step.forecast_class || (med < 70 ? 'low' : med <= 180 ? 'normal' : 'high');
 
       chartData.push({
         timeLabel: label,
         minuteOffset: step.horizon_minutes,
         historical: null,
-        predictedMedian: step.glucose_median,
+        predictedMedian: med,
         q10: q10,
         q90: q90,
-        // For Recharts Area representing the band from q10 to q90
-        bandBase: q10,
-        bandWidth: q90 - q10,
-        riskClass: step.predicted_risk_class,
-        hypoProb: (step.risk_probabilities.hypo * 100).toFixed(1),
-        hyperProb: (step.risk_probabilities.hyper * 100).toFixed(1),
+        uncertaintyRange: [q10, q90],
+        forecastClass: fClass,
+        alert: step.alert,
+        isValidated: step.is_validated ?? [30, 60, 90, 120].includes(step.horizon_minutes),
+        hypoProb: (((step.p_hypo ?? step.risk_probabilities?.hypo ?? 0) * 100)).toFixed(1),
+        normalProb: (((step.p_normal ?? step.risk_probabilities?.normal ?? 0) * 100)).toFixed(1),
+        hyperProb: (((step.p_hyper ?? step.risk_probabilities?.hyper ?? 0) * 100)).toFixed(1),
         isForecast: true,
         step: step.step
       });
@@ -107,9 +110,21 @@ export default function ForecastChart({ historicalReadings, forecastData, units 
               <strong>[{data.q10} – {data.q90}] {units}</strong>
             </div>
             <div className="tooltip-row">
+              <span>Forecast Class (Median):</span>
+              <span className={`risk-pill ${data.forecastClass?.toLowerCase()}`}>
+                {data.forecastClass?.toUpperCase()}
+              </span>
+            </div>
+            <div className="tooltip-row">
+              <span>Threshold Alert:</span>
+              <strong style={{ color: data.alert ? '#dc2626' : '#64748b' }}>
+                {data.alert ? data.alert : (data.isValidated ? 'None' : 'Not validated')}
+              </strong>
+            </div>
+            <div className="tooltip-row">
               <span>Risk Assessment:</span>
-              <span className={`risk-pill ${data.riskClass?.toLowerCase()}`}>
-                {data.riskClass} (Hypo: {data.hypoProb}%, Hyper: {data.hyperProb}%)
+              <span className="text-xs text-muted">
+                (Hypo: {data.hypoProb}%, Normal: {data.normalProb}%, Hyper: {data.hyperProb}%)
               </span>
             </div>
           </>
@@ -198,12 +213,12 @@ export default function ForecastChart({ historicalReadings, forecastData, units 
             <Area
               name="10th–90th Percentile Interval"
               type="monotone"
-              dataKey="bandWidth"
-              baseValue="dataMin"
+              dataKey="uncertaintyRange"
               fill="#0D9488"
               fillOpacity={0.18}
               stroke="none"
               legendType="rect"
+              connectNulls={true}
             />
 
             {/* Historical Glucose Line */}

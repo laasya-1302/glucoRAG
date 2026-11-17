@@ -1,13 +1,23 @@
-import React from 'react';
-import { Activity, ShieldCheck, AlertCircle, RefreshCw, Cpu } from 'lucide-react';
+import React, { useState } from 'react';
+import { Activity, ShieldCheck, AlertCircle, Cpu, User, LogOut, Trash2, Edit3 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 export default function Header({ 
   selectedExp, 
   onSelectExp, 
   availableExps, 
   healthStatus, 
-  onRefreshHealth 
+  onRefreshHealth,
+  onOpenProfile
 }) {
+  const { user, logout, deleteAccount } = useAuth();
+
+  const handleDelete = async () => {
+    if (window.confirm("Are you sure you want to permanently delete your account and profile data? This cannot be undone.")) {
+      await deleteAccount();
+    }
+  };
+
   return (
     <header className="header-container">
       <div className="header-brand">
@@ -24,7 +34,7 @@ export default function Header({
       </div>
 
       <div className="header-actions">
-        {/* Experiment Selector */}
+        {/* Model Selector */}
         <div className="experiment-selector-card">
           <Cpu size={16} className="text-teal" />
           <span className="label-text">Model:</span>
@@ -75,6 +85,47 @@ export default function Header({
             </>
           )}
         </div>
+
+        {/* User Profile Pill & Actions */}
+        {user && (
+          <div className="user-profile-menu">
+            <div className="user-info-pill" title={`Signed in as ${user.email}`}>
+              <User size={15} className="text-teal" />
+              <span className="user-name">{user.name}</span>
+              {user.age && <span className="user-meta">({user.age}y{user.gender ? `, ${user.gender[0]}` : ''})</span>}
+            </div>
+
+            <button
+              type="button"
+              className="btn-icon-subtle"
+              onClick={onOpenProfile}
+              title="Edit Profile"
+              aria-label="Edit Profile"
+            >
+              <Edit3 size={15} />
+            </button>
+
+            <button
+              type="button"
+              className="btn-icon-subtle text-amber"
+              onClick={handleDelete}
+              title="Delete My Account and Data"
+              aria-label="Delete Account"
+            >
+              <Trash2 size={15} />
+            </button>
+
+            <button
+              type="button"
+              className="btn-icon-subtle text-muted"
+              onClick={logout}
+              title="Logout"
+              aria-label="Logout"
+            >
+              <LogOut size={15} />
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

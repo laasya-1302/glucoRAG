@@ -55,15 +55,27 @@ export default function BluetoothCard({
         {/* Action Buttons */}
         <div className="ble-actions">
           {!isConnected ? (
-            <button
-              type="button"
-              className="btn btn-primary btn-ble"
-              onClick={onConnect}
-              disabled={isConnecting}
-            >
-              <Bluetooth size={16} />
-              <span>{isConnecting ? 'Searching...' : 'Connect Bluetooth Device'}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                className="btn btn-primary btn-ble"
+                onClick={() => onConnect(false)}
+                disabled={isConnecting}
+              >
+                <Bluetooth size={16} />
+                <span>{isConnecting ? 'Searching...' : 'Connect Bluetooth'}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-ble"
+                onClick={() => onConnect(true)}
+                disabled={isConnecting}
+                title="Search all discoverable Bluetooth devices if device name or filter is not matching"
+              >
+                <Radio size={15} />
+                <span>Scan All</span>
+              </button>
+            </>
           ) : (
             <>
               <button

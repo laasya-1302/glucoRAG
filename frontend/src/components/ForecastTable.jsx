@@ -1,7 +1,14 @@
 import React from 'react';
-import { Table, ShieldAlert, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Table, ShieldAlert, CheckCircle, AlertTriangle, ShieldCheck, Database, Hash } from 'lucide-react';
 
-export default function ForecastTable({ forecast, units = "mg/dL" }) {
+export default function ForecastTable({ 
+  forecast, 
+  units = "mg/dL",
+  mode = "cgm_only",
+  inputsUsed = ["cgm"],
+  modelName = "E1 Multimodal GPFormer",
+  checkpointHashes = null
+}) {
   if (!forecast || forecast.length === 0) return null;
 
   const formatTime = (isoString) => {
@@ -19,11 +26,24 @@ export default function ForecastTable({ forecast, units = "mg/dL" }) {
         <div>
           <h2 className="card-title flex-align">
             <Table size={18} className="text-teal" />
-            <span>8-Step Quantile Forecast & Multi-Task Risk Distribution</span>
+            <span>Multi-Horizon Forecast & Calibrated Risk Distribution</span>
           </h2>
           <p className="card-description">
-            Quantile forecasts and class probabilities output directly by the trained GPFormer architecture.
+            Quantile forecasts, calibrated uncertainty bounds, median-derived forecast class, and frozen threshold alerts.
           </p>
+        </div>
+
+        {/* Model & Input Features Metadata */}
+        <div className="model-meta-badges">
+          <span className="badge-meta">
+            <strong>Mode:</strong> {mode === 'multimodal' ? 'Multimodal (E1)' : 'CGM-only (E1_cgmonly)'}
+          </span>
+          <span className="badge-meta">
+            <strong>Inputs:</strong> {Array.isArray(inputsUsed) ? inputsUsed.join(', ') : 'cgm'}
+          </span>
+          <span className="badge-meta">
+            <strong>Model:</strong> {modelName}
+          </span>
         </div>
       </div>
 
@@ -34,24 +54,27 @@ export default function ForecastTable({ forecast, units = "mg/dL" }) {
               <th>Step</th>
               <th>Horizon</th>
               <th>Est. Time</th>
-              <th>Median (q50)</th>
-              <th>10%–90% Interval</th>
-              <th>Bandwidth</th>
-              <th>Hypo Risk (&lt;70)</th>
-              <th>Normal (70-180)</th>
-              <th>Hyper Risk (&gt;180)</th>
-              <th>Risk Status</th>
+              <th>Median</th>
+              <th>10%–90% Band</th>
+              <th>P(low) &lt;70</th>
+              <th>P(normal) 70–180</th>
+              <th>P(high) &gt;180</th>
+              <th>Forecast Class (Median)</th>
+              <th>Threshold Alert</th>
             </tr>
           </thead>
           <tbody>
             {forecast.map((row) => {
-              const isHypo = row.predicted_risk_class === 'HYPO';
-              const isHyper = row.predicted_risk_class === 'HYPER';
-              const isNormal = row.predicted_risk_class === 'NORMAL';
-              const hypoAlert = row.risk_probabilities.hypo >= 0.30;
+              const med = row.median ?? row.glucose_median;
+              // Forecast class derived STRICTLY from MEDIAN (<70 low, 70-180 normal, >180 high)
+              const fClass = row.forecast_class || (med < 70 ? 'low' : med <= 180 ? 'normal' : 'high');
+              const alertMsg = row.alert;
+
+              const isHypoAlert = alertMsg === "Possible low glucose";
+              const isHyperAlert = alertMsg === "Possible high glucose";
 
               return (
-                <tr key={row.step} className={hypoAlert ? 'row-alert' : ''}>
+                <tr key={row.step} className={isHypoAlert ? 'row-alert-hypo' : ''}>
                   <td className="font-semibold text-center">#{row.step}</td>
                   <td>
                     <span className="horizon-badge">+{row.horizon_minutes} min</span>
@@ -59,27 +82,22 @@ export default function ForecastTable({ forecast, units = "mg/dL" }) {
                   <td className="text-muted">{formatTime(row.timestamp)}</td>
                   <td>
                     <strong className="glucose-val text-teal">
-                      {row.glucose_median} <span className="unit-label">{units}</span>
+                      {med} <span className="unit-label">{units}</span>
                     </strong>
                   </td>
                   <td>
                     <span className="font-mono text-slate">
-                      [{row.uncertainty_band.low_q10} – {row.uncertainty_band.high_q90}]
-                    </span>
-                  </td>
-                  <td>
-                    <span className="bandwidth-badge">
-                      ±{(row.uncertainty_band.bandwidth / 2).toFixed(1)} {units}
+                      [{row.lo ?? row.uncertainty_band?.low_q10} – {row.hi ?? row.uncertainty_band?.high_q90}]
                     </span>
                   </td>
                   <td>
                     <div className="prob-bar-container">
                       <div 
                         className="prob-fill hypo-fill" 
-                        style={{ width: `${Math.min(row.risk_probabilities.hypo * 100, 100)}%` }}
+                        style={{ width: `${Math.min((row.p_hypo ?? row.risk_probabilities?.hypo ?? 0) * 100, 100)}%` }}
                       ></div>
-                      <span className={`prob-text ${hypoAlert ? 'text-danger font-bold' : ''}`}>
-                        {(row.risk_probabilities.hypo * 100).toFixed(1)}%
+                      <span className={`prob-text ${isHypoAlert ? 'text-danger font-bold' : ''}`}>
+                        {(((row.p_hypo ?? row.risk_probabilities?.hypo ?? 0) * 100)).toFixed(1)}%
                       </span>
                     </div>
                   </td>
@@ -87,10 +105,10 @@ export default function ForecastTable({ forecast, units = "mg/dL" }) {
                     <div className="prob-bar-container">
                       <div 
                         className="prob-fill normal-fill" 
-                        style={{ width: `${Math.min(row.risk_probabilities.normal * 100, 100)}%` }}
+                        style={{ width: `${Math.min((row.p_normal ?? row.risk_probabilities?.normal ?? 0) * 100, 100)}%` }}
                       ></div>
                       <span className="prob-text">
-                        {(row.risk_probabilities.normal * 100).toFixed(1)}%
+                        {(((row.p_normal ?? row.risk_probabilities?.normal ?? 0) * 100)).toFixed(1)}%
                       </span>
                     </div>
                   </td>
@@ -98,26 +116,66 @@ export default function ForecastTable({ forecast, units = "mg/dL" }) {
                     <div className="prob-bar-container">
                       <div 
                         className="prob-fill hyper-fill" 
-                        style={{ width: `${Math.min(row.risk_probabilities.hyper * 100, 100)}%` }}
+                        style={{ width: `${Math.min((row.p_hyper ?? row.risk_probabilities?.hyper ?? 0) * 100, 100)}%` }}
                       ></div>
-                      <span className={`prob-text ${row.risk_probabilities.hyper >= 0.5 ? 'text-warning font-bold' : ''}`}>
-                        {(row.risk_probabilities.hyper * 100).toFixed(1)}%
+                      <span className={`prob-text ${isHyperAlert ? 'text-warning font-bold' : ''}`}>
+                        {(((row.p_hyper ?? row.risk_probabilities?.hyper ?? 0) * 100)).toFixed(1)}%
                       </span>
                     </div>
                   </td>
                   <td>
-                    <span className={`risk-status-pill ${row.predicted_risk_class.toLowerCase()}`}>
-                      {isHypo && <ShieldAlert size={13} />}
-                      {isNormal && <CheckCircle size={13} />}
-                      {isHyper && <AlertTriangle size={13} />}
-                      <span>{row.predicted_risk_class}</span>
+                    {/* Forecast class derived strictly from MEDIAN */}
+                    <span className={`risk-status-pill class-${fClass.toLowerCase()}`}>
+                      {fClass === 'low' && <ShieldAlert size={13} />}
+                      {fClass === 'normal' && <CheckCircle size={13} />}
+                      {fClass === 'high' && <AlertTriangle size={13} />}
+                      <span>{fClass.toUpperCase()}</span>
                     </span>
+                  </td>
+                  <td>
+                    {/* Separate alert from frozen thresholds */}
+                    {alertMsg ? (
+                      <span className={`alert-badge ${isHypoAlert ? 'badge-alert-hypo' : 'badge-alert-hyper'}`}>
+                        <AlertTriangle size={12} />
+                        <span>{alertMsg}</span>
+                      </span>
+                    ) : (
+                      <span className="text-muted text-xs">
+                        {[30, 60, 90, 120].includes(row.horizon_minutes) ? 'None' : (
+                          <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Not validated</span>
+                        )}
+                      </span>
+                    )}
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Checkpoint Hashes & Mandatory Clinical Disclaimer */}
+      <div className="table-footer-meta">
+        {checkpointHashes && typeof checkpointHashes === 'object' && Object.keys(checkpointHashes).length > 0 && (
+          <div className="checkpoint-hashes-row">
+            <span className="hash-title">
+              <Hash size={13} className="text-teal" />
+              <span>Checkpoint SHA-256 Hashes:</span>
+            </span>
+            <div className="hashes-list">
+              {Object.entries(checkpointHashes).map(([seed, h]) => (
+                <span key={seed} className="hash-item font-mono" title={`${seed}: ${h}`}>
+                  <strong>{seed}:</strong> {h.slice(0, 12)}...
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mandatory-clinical-disclaimer">
+          <strong>Mandatory Notice:</strong> Research prototype. Not a medical device. Do not use for insulin dosing,
+          treatment decisions or as a safety alert. A forecast of recovery must never delay treating or rechecking a low.
+        </div>
       </div>
     </div>
   );

@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.db.database import db
 from app.services.e1_inference import e1_service, OUT_LEN
 from app.services.model_registry import get_registered_models, is_model_supported
 
@@ -12,6 +13,10 @@ VALID_24 = [142, 138, 135, 132, 129, 127, 125, 128, 131, 134, 139, 145, 148, 151
 @pytest.fixture(scope="module")
 def client():
     with TestClient(app) as c:
+        user = db.get_or_create_user("mock", "e1_test_sub", "e1test@example.com", "E1 Tester")
+        db.update_user_profile(user.id, "E1 Tester", 30, "Female", True, False)
+        res = c.post("/auth/mock/login", json={"email": "e1test@example.com", "name": "E1 Tester", "sub": "e1_test_sub"})
+        c.headers.update({"X-CSRF-Token": res.json()["csrf_token"]})
         yield c
 
 def test_e1_models_loaded():
@@ -23,11 +28,11 @@ def test_e1_models_loaded():
         assert not model.training  # In evaluation mode
 
 def test_e1_preprocessing_cgmonly():
-    """Verify CGM-only preprocessing returns shape (1, 24, 9) and E1_cgmonly mode."""
+    """Verify CGM-only preprocessing returns shape (1, 24, 9) and cgm_only mode."""
     dt = datetime(2026, 10, 27, 12, 0, 0)
-    x, mode = e1_service.preprocess(VALID_24, dt)
+    x, mode, inputs_used = e1_service.preprocess(VALID_24, dt)
     assert x.shape == (1, 24, 9)
-    assert mode == "E1_cgmonly"
+    assert mode in ("cgm_only", "E1_cgmonly")
     
     # Event channels 3..8 should all be zeros
     assert (x[0, :, 3:] == 0.0).all()
@@ -45,9 +50,9 @@ def test_e1_preprocessing_multimodal():
     ins_event = [{"timestamp": "2026-10-27T11:45:00", "units": 5.0, "type": "bolus"}]
     carb_event = [{"timestamp": "2026-10-27T11:45:00", "carbs": 40.0}]
     
-    x, mode = e1_service.preprocess(VALID_24, dt, insulin_events=ins_event, carb_events=carb_event)
+    x, mode, inputs_used = e1_service.preprocess(VALID_24, dt, insulin_events=ins_event, carb_events=carb_event)
     assert x.shape == (1, 24, 9)
-    assert mode == "E1"
+    assert mode in ("multimodal", "E1")
     
     # Index 22 is 11:45 (since 23 is 12:00)
     assert x[0, 22, 3] > 0.0  # scaled bolus
@@ -60,7 +65,7 @@ def test_e1_ensemble_prediction_structure():
     dt = datetime(2026, 10, 27, 12, 0, 0)
     res = e1_service.predict(VALID_24, dt)
     
-    assert res["mode"] == "E1_cgmonly"
+    assert res["mode"] in ("cgm_only", "E1_cgmonly")
     assert len(res["forecast"]) == OUT_LEN
     assert "clinical_alert" in res
     assert res["ensemble_seeds"] == ["s42", "s123", "s2026"]
@@ -108,7 +113,7 @@ def test_v1_forecast_e1_endpoint(client):
     data = res.json()
     assert data["status"] == "success"
     assert data["model_id"] == "e1_gpformer"
-    assert data["mode"] == "E1_cgmonly"
+    assert data["mode"] in ("cgm_only", "E1_cgmonly")
     assert data["forecast_30m"] is not None
     assert data["forecast_60m"] is not None
     assert data["forecast_90m"] is not None
@@ -132,7 +137,7 @@ def test_v1_forecast_multimodal_endpoint(client):
     assert res.status_code == 200
     data = res.json()
     assert data["status"] == "success"
-    assert data["mode"] == "E1"
+    assert data["mode"] in ("multimodal", "E1")
 
 def test_v1_forecast_legacy_models(client):
     """Verify POST /v1/forecast supports experiment_a and experiment_b."""

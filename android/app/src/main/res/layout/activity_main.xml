@@ -230,6 +230,202 @@
             android:textSize="13sp"
             android:background="@color/surface_card" />
 
+        <!-- ═══════ SMARTWATCH & GPFORMER ALERTS SECTION ═══════ -->
+        <TextView
+            style="@style/TextAppearance.Section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Smartwatch Alerts (ZEB-FIT 20 Series)" />
+
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.GlucoseTransmitter.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <!-- Alert Status Banner -->
+                <TextView
+                    android:id="@+id/tvAlertStatusBanner"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="8dp"
+                    android:text="Alerts ready"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/accent"
+                    android:background="@color/surface_card" />
+
+                <!-- Prediction Metrics (Live Grid) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingTop="8dp"
+                    android:baselineAligned="false">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/TextAppearance.StatusLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Current Trend" />
+
+                        <TextView
+                            android:id="@+id/tvLiveTrend"
+                            style="@style/TextAppearance.StatusValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Stable →" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/TextAppearance.StatusLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="+30m Prediction" />
+
+                        <TextView
+                            android:id="@+id/tvLiveForecast30m"
+                            style="@style/TextAppearance.StatusValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="-- mg/dL" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Probabilities Row -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingTop="8dp"
+                    android:baselineAligned="false">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            style="@style/TextAppearance.StatusLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Risk Probabilities" />
+
+                        <TextView
+                            android:id="@+id/tvLiveProbabilities"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textSize="12sp"
+                            android:textColor="@color/on_surface"
+                            android:text="Hypo: --% | Normal: --% | Hyper: --%" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Backend Server IP Configuration -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingTop="12dp">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="FastAPI Backend URL"
+                        app:hintTextColor="@color/primary_light"
+                        app:boxStrokeColor="@color/primary">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etBackendUrl"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textUri"
+                            android:textColor="@color/on_surface"
+                            android:textSize="13sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSaveBackendUrl"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="Save"
+                        android:textSize="12sp"
+                        app:backgroundTint="@color/primary" />
+                </LinearLayout>
+
+                <!-- Prominent Smartwatch Test Trigger -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTestSmartwatchNotification"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="🔔 TEST SMARTWATCH NOTIFICATION (VIBRATE)"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    app:backgroundTint="@color/accent" />
+
+                <!-- Quick Test Actions for Hypo & Hyper Alert formatting -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingTop="6dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestHypoAlert"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
+                        android:text="Test Hypo"
+                        android:textSize="11sp"
+                        app:backgroundTint="@color/risk_hypo" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestHyperAlert"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginHorizontal="4dp"
+                        android:text="Test Hyper"
+                        android:textSize="11sp"
+                        app:backgroundTint="@color/risk_hyper" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRunPredictionNow"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="4dp"
+                        android:text="Predict Now"
+                        android:textSize="11sp"
+                        app:backgroundTint="@color/btn_start" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- ═══════ BLUETOOTH LE SECTION ═══════ -->
         <TextView
             style="@style/TextAppearance.Section"
@@ -474,6 +670,34 @@
                         android:textSize="11sp"
                         app:backgroundTint="@color/btn_stop"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton" />
+                </LinearLayout>
+
+                <!-- Seed Risk Patterns for instant 24-slot model verification -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingBottom="8dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSeedHypoPattern"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
+                        android:text="Seed Hypo (55 mg/dL)"
+                        android:textSize="11sp"
+                        app:backgroundTint="@color/risk_hypo" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnSeedHyperPattern"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="4dp"
+                        android:text="Seed Hyper (240 mg/dL)"
+                        android:textSize="11sp"
+                        app:backgroundTint="@color/risk_hyper" />
                 </LinearLayout>
 
                 <!-- RecyclerView for reading history -->

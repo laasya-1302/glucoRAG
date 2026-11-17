@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle, XCircle, RefreshCw } from 'lucide-react';
+import { XCircle, RefreshCw } from 'lucide-react';
 
 export default function ErrorBanner({ error, onRetry, onDismiss }) {
   if (!error) return null;

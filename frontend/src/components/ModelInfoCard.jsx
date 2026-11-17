@@ -1,5 +1,5 @@
 import React from 'react';
-import { Cpu, CheckCircle2, Shield, Layers, HelpCircle, AlertOctagon } from 'lucide-react';
+import { Cpu, CheckCircle2, AlertOctagon } from 'lucide-react';
 
 export default function ModelInfoCard({ modelInfo, activeExperiment, onSelectExperiment }) {
   if (!modelInfo) return null;

@@ -1,281 +1,171 @@
-# GPFormer Glucose Forecasting Web Application
+# GPFormer Multimodal Glucose Forecasting & Clinical Dashboard
 
-A production-grade, end-to-end clinical blood glucose forecasting web application connecting a trained **GPFormer** (Deep Domain Generalization Transformer with Quantile Decoder and Multi-Task Risk Head) to a **FastAPI** Python backend and a responsive **React (Vite)** clinical dashboard.
-
----
-
-## 1. System Architecture & Discovered Specifications
-
-### Model & Neural Architecture
-- **Base Forecasting Backbone:** Original `GPFormer.Model` (`d_model=128`, `n_heads=8`, `e_layers=3`, `d_ff=2048`, `dropout=0.05`, `embed="cycF"`, `freq="cyc"`).
-- **Time Embeddings:** 2-dimensional continuous sinusoidal time-of-day representation (`make_marks(hour, 2)`: $\sin(\frac{2\pi \cdot \text{hour}}{24})$ and $\cos(\frac{2\pi \cdot \text{hour}}{24})$).
-- **Input Window:** Exactly 24 chronological glucose readings ($SEQ\_LEN = 24$, 6 hours at 15-minute intervals), normalized by training cohort statistics: $z = \frac{g - \mu}{\sigma}$.
-- **Decoder Start Token:** Last 2 known observations ($LABEL\_LEN = 2$, 30 minutes) + 8 zeros for prediction steps.
-- **Forecast Horizon:** Exactly 8 future steps ($PRED\_LEN = 8$, representing +15, +30, +45, +60, +75, +90, +105, +120 minutes).
-- **Quantile Outputs:** 5 simultaneous quantiles: `0.10`, `0.25`, `0.50` (median), `0.75`, `0.90`.
-- **Multi-Task Risk Prediction Head:** 2-layer MLP (`Linear(7, 32) -> GELU -> Linear(32, 3)`) reading the 5 predicted quantiles, the most recent glucose value, and normalized step position, producing calibrated softmax probabilities over 3 physiological risk classes:
-  - **HYPO:** $< 70\text{ mg/dL}$ (Alert triggered if probability $\ge 30\%$)
-  - **NORMAL:** $70 \text{ to } 180\text{ mg/dL}$ (Target physiological range)
-  - **HYPER:** $> 180\text{ mg/dL}$ (Alert triggered if probability $\ge 50\%$)
-
-### Exact Checkpoint Loading Procedure
-1. Checkpoint metadata is loaded from `runs/<experiment>/run_info.json` to extract exact `arch` dictionary, normalization parameters (`norm.mean`, `norm.std`), and `mark_dim`.
-2. The PyTorch model `GlucoseNet` is instantiated using `gp_model.build_net(repo, arch, device)`.
-3. Checkpoint weights are deserialized from `runs/<experiment>/best.pt` with `torch.load(..., map_location=device, weights_only=False)`.
-4. `net.load_state_dict(checkpoint["model"])` loads weights into both the GPFormer transformer and the risk MLP head.
-5. The model is switched to evaluation mode (`net.eval()`) and executed inside `torch.no_grad()`.
+A production-grade, clinical-style research prototype connecting the **E1 Multimodal GPFormer 3-Seed Ensemble** (s42, s123, s2026) and legacy univariate checkpoints to a **FastAPI** Python backend and a responsive **React (Vite)** clinical dashboard.
 
 ---
 
-## 2. Directory Layout
+## 1. System Architecture & Model Contract
 
-```text
-diabetes/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── config.py         # Paths, physiological limits, thresholds
-│   │   ├── models.py         # Pydantic request/response schemas
-│   │   ├── validation.py     # 24-point strict sequence validation
-│   │   ├── inference.py      # GPFormerEngine (loading, caching, inference)
-│   │   └── main.py           # FastAPI app & routing
-│   ├── tests/
-│   │   ├── test_validation.py        # Tests 1, 2, 3: Length, NaN, out-of-bounds
-│   │   ├── test_inference.py         # Tests 4, 5, 6, 7, 10: Checkpoints, shapes, CI, offline eval
-│   │   ├── test_api.py               # Test 8: Endpoints & error responses
-│   │   └── test_frontend_contract.py # Test 9: Frontend form submission contracts
-│   ├── requirements.txt
-│   └── run_tests.py          # Automated test runner
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Header.jsx            # Brand, experiment picker, health indicator
-│   │   │   ├── GlucoseInputForm.jsx  # 24 inputs, timestamp picker, synthetic presets
-│   │   │   ├── ForecastChart.jsx     # Recharts 24h history + 8-step forecast + CI
-│   │   │   ├── ForecastTable.jsx     # Step-by-step quantiles & risk probability bars
-│   │   │   ├── ClinicalAlertCard.jsx # Prominent clinical warning card
-│   │   │   ├── ModelInfoCard.jsx     # Checkpoint metadata & medical disclaimer
-│   │   │   └── ErrorBanner.jsx       # Diagnostic error boundary
-│   │   ├── services/
-│   │   │   └── api.js                # Frontend API client
-│   │   ├── App.jsx
-│   │   ├── main.jsx
-│   │   └── index.css                 # Responsive clinical styling
-│   ├── package.json
-│   └── vite.config.js
-├── gpformer/                 # Cloned GPFormer repository (models, layers, utils)
-├── scripts/                  # Project data and training scripts
-│   ├── gp_data.py
-│   ├── gp_model.py
-│   ├── gp_train.py
-│   ├── gp_eval.py
-│   └── resume_utils.py
-├── runs/                     # Experiment checkpoints & run metadata
-│   ├── gp_A/
-│   │   ├── best.pt
-│   │   └── run_info.json
-│   └── gp_B/
-│       ├── best.pt
-│       └── run_info.json
-├── .env.example
-└── README.md
+### Multimodal 9-Channel Architecture (Part A)
+- **Input Window:** Exactly 24 chronological slots spaced 15 minutes apart (6 hours total). Slot #24 (index 23) represents "now" (the latest reading).
+- **9 Input Channels per Slot:**
+  1. `0: glucose`: Standardized glucose $z = \frac{g - \mu}{\sigma}$ using `manifests/scalers_v1.json` ($\mu = 159.927$, $\sigma = 63.562$).
+  2. `1: sin_tod`: $\sin\left(\frac{2\pi \cdot \text{tod}}{1440}\right)$ where $\text{tod}$ is local minutes since midnight of that slot.
+  3. `2: cos_tod`: $\cos\left(\frac{2\pi \cdot \text{tod}}{1440}\right)$.
+  4. `3: bolus`: Scaled units $\min\left(\frac{\text{units}}{14.9}, 3.0\right)$.
+  5. `4: basal`: Scaled rate $\min\left(\frac{\text{U/h}}{3.6}, 3.0\right)$.
+  6. `5: carbs`: Scaled grams $\min\left(\frac{\text{grams}}{95.0}, 3.0\right)$.
+  7. `6: m_bolus`: Availability mask for bolus ($0$ if unavailable, $1$ if available).
+  8. `7: m_basal`: Availability mask for basal ($0$ if unavailable, $1$ if available).
+  9. `8: m_carb`: Availability mask for carbs ($0$ if unavailable, $1$ if available).
+
+- **Three Payload States per Modality:**
+  - **Not Available (`null`):** Value = 0, Mask = 0 across all slots.
+  - **Available, None Given (`[]`):** Value = 0, Mask = 1 across all slots.
+  - **Available, Events Given (`[...]`):** Value = scaled sum per slot, Mask = 1 across all slots.
+
+- **Event Slot Assignment:**
+  - An event at timestamp $t$ lands in the **first slot** whose timestamp is $\ge t$ (e.g., $12:07 \to 12:15$ slot, never $12:00$).
+  - Multiple events mapped to the same slot are summed.
+  - Events later than the latest reading ($t > t_{23}$) or earlier than $t_0 - 15\text{ min}$ are rejected with `422 {code, message}`.
+  - Basal rate applies from its start time up to 24 hours lookback.
+
+- **Forecasting Mode:**
+  - If bolus, basal, and carbs are all `null` $\implies$ `cgm_only` (eval thresholds key `"E1_cgmonly"`).
+  - If any input is supplied (even `[]`) $\implies$ `multimodal` (eval thresholds key `"E1"`).
+
+- **Result Semantics:**
+  - **Forecast Class (Median-Derived):** Derived strictly from the median prediction ($\text{low} < 70$, $\text{normal } 70\text{--}180$, $\text{high} > 180\text{ mg/dL}$).
+  - **Threshold Alerts:** Derived separately from calibrated probabilities and `manifests/frozen_eval_v1.json` (`"Possible low glucose"` / `"Possible high glucose"` / `null`). Cells are **never** labeled "HYPO" based on the alert alone.
+
+---
+
+## 2. Authentication, Privacy & Security (Part B)
+
+- **OAuth 2.0 / OpenID Connect:**
+  - Google OIDC Authorization Code Flow with PKCE (`S256` code challenge and high-entropy code verifier), state parameter, and cryptographic nonce.
+  - Verification on the server: validates signature, audience (`GOOGLE_CLIENT_ID`), issuer (`accounts.google.com`), and expiration.
+  - Requests strictly minimal scopes: `openid email profile`. No birthday or gender scopes.
+  - Extensible, provider-agnostic interface with an included `MockOAuthProvider` for automated testing and offline development.
+
+- **Researcher Profile Completion Gate:**
+  - Mandatory profile step after first login before forecasting access is granted:
+    - Full Name (prefilled from OAuth provider, editable, required)
+    - Age in years (required, whole number $1\text{--}120$)
+    - Gender (optional: Female / Male / Non-binary / Other / Prefer not to say)
+    - Consent checkbox linking to research prototype terms and privacy notice.
+  - **Pediatric Safety Warning (<18):** Prominent notice *"This model has not been tested on children."* with mandatory explicit confirmation checkbox.
+  - Name, age, and gender are stored solely for session management and are **never** passed to the forecasting neural network.
+
+- **Sessions & Health Data Privacy:**
+  - Sessions stored in signed, `httpOnly`, `SameSite=Lax`, `Secure` (production) cookies. No auth tokens in `localStorage`.
+  - CSRF protection via double-submit `X-CSRF-Token` validation on all state-changing routes.
+  - Rate limiting on auth endpoints.
+  - **Zero Health Data Persistence:** SQLite `users` table stores only `id`, `provider`, `provider_sub`, `email`, `name`, `age`, `gender`, `minor_confirmed`, `consent_timestamp`, and `created_at`. No glucose, insulin, or carb data is logged or persistently stored.
+  - Complete "Edit Profile" and permanent "Delete my account and data" self-service actions.
+
+---
+
+## 3. Environment Variables & Google Cloud OAuth Setup
+
+### Environment Variables (`.env.example`)
+Create a `.env` file in the project root:
+
+```ini
+# Environment Mode (development or production)
+ENVIRONMENT=development
+
+# Frontend Base URL
+FRONTEND_URL=http://localhost:5173
+
+# SQLite Database Storage Path
+DB_PATH=data/app.db
+
+# Cryptographic Session Cookie HMAC Secret (Generate using: python -c "import secrets; print(secrets.token_hex(32))")
+SESSION_SECRET=your_32_byte_session_hmac_secret_here
+
+# Local Development Bypass (STRICTLY disabled in production)
+AUTH_DISABLED=false
+
+# Google OAuth 2.0 / OpenID Connect Credentials
+GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+OAUTH_REDIRECT_URI=http://localhost:8000/auth/google/callback
 ```
 
----
-
-## 3. Installation & Setup
-
-### Prerequisites
-- Python 3.10+ (Tested on Python 3.12 / 3.13)
-- Node.js 18+ and npm
-
-### Backend Setup
-1. Open a terminal in the project directory:
-   ```bash
-   cd backend
-   ```
-2. Install Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-### Frontend Setup
-1. In another terminal, navigate to `frontend`:
-   ```bash
-   cd frontend
-   npm install
-   ```
+### Google Cloud Console OAuth 2.0 Configuration
+1. Open [Google Cloud Console](https://console.cloud.google.com/).
+2. Create or select an existing project.
+3. Navigate to **APIs & Services** $\to$ **OAuth consent screen**:
+   - User Type: **External** (or Internal if using Google Workspace).
+   - App Name: `BioTective GPFormer Research`.
+   - Scopes: Select `.../auth/userinfo.email`, `.../auth/userinfo.profile`, and `openid`.
+   - Save and proceed.
+4. Navigate to **APIs & Services** $\to$ **Credentials**:
+   - Click **Create Credentials** $\to$ **OAuth client ID**.
+   - Application Type: **Web application**.
+   - Name: `BioTective Web App`.
+   - **Authorized JavaScript origins:** `http://localhost:5173`, `http://localhost:8000`
+   - **Authorized redirect URIs:** `http://localhost:8000/auth/google/callback`
+5. Copy the generated **Client ID** and **Client Secret** into your `.env` file.
 
 ---
 
-## 4. Running the Application
+## 4. How to Run Backend & Frontend
 
-### 1. Launch FastAPI Backend
-```bash
-# In the diabetes/ directory:
-python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+### 1. Backend Setup & Startup
+```powershell
+# From the repository root:
+# Activate virtual environment
+& "glucoRAG\backend\venv\Scripts\Activate.ps1"
+
+# Run FastAPI backend with Uvicorn
+uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-The interactive Swagger API documentation will be available at:
-👉 `http://localhost:8000/docs`
+The API documentation is accessible at `http://localhost:8000/docs`.
 
-### 2. Launch React Frontend
-```bash
-# In the diabetes/frontend directory:
+### 2. Frontend Setup & Startup
+```powershell
+# In a separate terminal:
+cd frontend
+npm install
 npm run dev
 ```
-Open your browser at:
-👉 `http://localhost:5173`
+Open your browser at `http://localhost:5173`.
 
 ---
 
-## 5. API Reference & Examples
+## 5. Automated Verification & Acceptance Tests
 
-### Health Check
-`GET /health`
-```json
-{
-  "status": "healthy",
-  "api_online": true,
-  "model_loaded": true,
-  "current_experiment": "gp_A",
-  "available_experiments": ["gp_A", "gp_B"]
-}
+Execute the comprehensive test suite (all 58 tests across 7 verification suites):
+
+```powershell
+& "glucoRAG\backend\venv\Scripts\python.exe" backend\run_tests.py
 ```
 
-### Model Information
-`GET /model-info`
-```json
-{
-  "active_experiment": "gp_A",
-  "input_sequence_length": 24,
-  "sampling_interval_minutes": 15,
-  "total_history_hours": 6.0,
-  "forecast_horizon_steps": 8,
-  "forecast_horizon_minutes": 120,
-  "quantiles_output": [0.1, 0.25, 0.5, 0.75, 0.9],
-  "risk_classes": ["HYPO", "NORMAL", "HYPER"],
-  "thresholds": { "hypo": 70.0, "hyper": 180.0 },
-  "available_experiments": [
-    {
-      "experiment_id": "gp_A",
-      "name": "Experiment A (REPLACE-BG)",
-      "description": "Trained on REPLACE-BG T1D cohort",
-      "checkpoint_available": true,
-      "normalization_mean": 148.5,
-      "normalization_std": 52.3,
-      "training_sources": ["replacebg"]
-    },
-    {
-      "experiment_id": "gp_B",
-      "name": "Experiment B (REPLACE-BG + Shanghai T2D)",
-      "description": "Trained on REPLACE-BG T1D and Shanghai T2D cohorts",
-      "checkpoint_available": true,
-      "normalization_mean": 151.2,
-      "normalization_std": 54.1,
-      "training_sources": ["replacebg", "shanghai_t2d"]
-    }
-  ]
-}
-```
+### Acceptance Checks: Demo Presets A–G Verification
+All 7 demo presets reproduce the exact expected medians from the reference notebook:
 
-### Predict Glucose
-`POST /predict`
-
-**Request Payload:**
-```json
-{
-  "readings": [
-    142, 138, 135, 132, 129, 127, 125, 128, 131, 134, 139, 145,
-    148, 151, 147, 143, 140, 136, 133, 130, 128, 131, 135, 139
-  ],
-  "latest_timestamp": "2026-10-27T12:00:00",
-  "experiment": "gp_A"
-}
-```
-
-**Response Payload:**
-```json
-{
-  "status": "success",
-  "experiment": "gp_A",
-  "experiment_description": "Experiment A (REPLACE-BG)",
-  "units": "mg/dL",
-  "input_summary": {
-    "count": 24,
-    "latest_glucose_mg_dl": 139.0,
-    "latest_timestamp": "2026-10-27T12:00:00",
-    "sampling_interval_minutes": 15,
-    "mean_glucose_mg_dl": 136.2,
-    "min_glucose_mg_dl": 125.0,
-    "max_glucose_mg_dl": 151.0
-  },
-  "forecast": [
-    {
-      "step": 1,
-      "horizon_minutes": 15,
-      "timestamp": "2026-10-27T12:15:00",
-      "glucose_median": 113.0,
-      "quantiles": { "q10": 103.3, "q25": 107.5, "q50": 113.0, "q75": 116.2, "q90": 119.8 },
-      "uncertainty_band": { "low_q10": 103.3, "high_q90": 119.8, "bandwidth": 16.5 },
-      "risk_probabilities": { "hypo": 0.3488, "normal": 0.3218, "hyper": 0.3295 },
-      "predicted_risk_class": "HYPO"
-    },
-    {
-      "step": 2,
-      "horizon_minutes": 30,
-      "timestamp": "2026-10-27T12:30:00",
-      "glucose_median": 124.9,
-      "quantiles": { "q10": 109.9, "q25": 116.8, "q50": 124.9, "q75": 135.1, "q90": 147.8 },
-      "uncertainty_band": { "low_q10": 109.9, "high_q90": 147.8, "bandwidth": 37.9 },
-      "risk_probabilities": { "hypo": 0.3332, "normal": 0.3374, "hyper": 0.3294 },
-      "predicted_risk_class": "NORMAL"
-    }
-  ],
-  "clinical_alert": {
-    "status": "HYPO_RISK",
-    "message": "HYPO RISK: low glucose (< 70 mg/dL) possible by about +15 min (alert probability >= 30%).",
-    "alert_horizon_minutes": 15
-  },
-  "model_version": "GPFormer-v1.0 (MLDG + Quantile Decoder + Multi-Task Risk Head)",
-  "disclaimer": "EXPERIMENTAL MODEL PREDICTION ONLY. Forecasts are generated by a research neural network and must not be used as clinical diagnostic criteria, CGM replacement, or insulin dosing guidance."
-}
-```
+| Preset | Description | Target (+30/+60/+90/+120) | Actual Median | P(hypo) (+30/+60/+90/+120) | Status |
+|:---:|:---|:---:|:---:|:---:|:---:|
+| **A** | Glucose only (CGM-only) | 59/79/97/106 | **59/79/97/106** | 0.514 / 0.248 / 0.152 / 0.107 | **EXACT MATCH** |
+| **B** | Multimodal, no insulin, no carbs | 61/84/102/113 | **61/84/102/113** | 0.516 / 0.224 / 0.140 / 0.085 | **EXACT MATCH** |
+| **C** | Carbs 30 g, insulin unavailable | 67/88/103/111 | **67/88/103/111** | 0.315 / 0.179 / 0.129 / 0.086 | **EXACT MATCH** |
+| **D** | Carbs 60 g, insulin unavailable | 82/103/111/113 | **82/103/111/113** | 0.161 / 0.122 / 0.104 / 0.080 | **EXACT MATCH** |
+| **E** | Carbs 60 g, insulin available none | 83/108/114/117 | **83/108/114/117** | 0.150 / 0.111 / 0.099 / 0.072 | **EXACT MATCH** |
+| **F** | Carbs 60 g + bolus 4 U | 84/109/114/117 | **84/109/114/117** | 0.144 / 0.110 / 0.099 / 0.072 | **EXACT MATCH** |
+| **G** | Bolus 4 U, no carbs | 64/89/107/116 | **64/89/107/116** | 0.471 / 0.187 / 0.126 / 0.075 | **EXACT MATCH** |
 
 ---
 
-## 6. Running Automated Tests
+## 6. Assumptions & Open Questions
 
-To execute the test suite (all 20 unit, integration, validation, and offline agreement tests):
-
-```bash
-python backend/run_tests.py
-```
-
-Test coverage:
-1. **Input Validation:** Exactly 24 chronological glucose entries accepted.
-2. **Length Checks:** Rejection of 23 and 25 readings with 422 Unprocessable Entity.
-3. **Value Integrity:** Rejection of null, NaN, infinite, non-numeric, and non-physiological readings ($<20$ or $>600\text{ mg/dL}$).
-4. **Model Loading:** Dynamic loading of Experiment A and Experiment B checkpoints.
-5. **Inference & Shapes:** Output shape verification ($8 \times 5$ quantiles and $8 \times 3$ probabilities).
-6. **Quantiles & Timing:** Monotonic uncertainty interval bounds and +15 min spacing.
-7. **Risk Class Mapping:** Correct mapping for $<70$, $70\text{--}180$, and $>180\text{ mg/dL}$.
-8. **API Diagnostics:** Response structures for `/health`, `/model-info`, and `/predict`.
-9. **Frontend Contracts:** Request and response schema contracts.
-10. **Offline Pipeline Agreement:** Validated that web inference matches `gp_model.predict` within numerical precision tolerance.
-
----
-
-## 7. Connecting Google Drive / Colab Checkpoints
-
-If you have trained new checkpoints in Google Colab (e.g., from `/content/drive/MyDrive/glucose_work/runs/`), you can seamlessly sync them:
-1. Copy your Colab `runs/gp_A` or `runs/gp_B` directory directly into the `runs/` folder in this repository:
-   ```text
-   runs/
-   ├── gp_A/
-   │   ├── best.pt
-   │   └── run_info.json
-   └── gp_B/
-       ├── best.pt
-       └── run_info.json
-   ```
-2. Restart the FastAPI server, or the API will auto-detect the checkpoints on reload. No retraining or code changes required!
+1. **Policy for Minors (< 18):**
+   - *Current Implementation:* Displays a prominent warning banner (*"This model has not been tested on children."*) and requires explicit acknowledgement checkbox before profile completion. Form submission without acknowledgement is blocked.
+   - *Open Question for Principal Investigator:* Should the system completely block minors (<18) or allow research access with verified parental/guardian consent?
+2. **Additional OAuth Providers:**
+   - *Current Implementation:* Built with an abstract `OAuthProvider` interface. Google OIDC and Mock provider are currently active.
+   - *Open Question:* Would you like Apple, Microsoft, or Institutional SAML/OIDC providers added in the next release?
+3. **Streamed / Clock Grid Latency:**
+   - *Current Implementation:* In `grid: "clock"` mode, data is resampled to 15-minute clock marks ($\pm 2.5\text{ min}$) and strictly requires 24 continuous marks (returning `422 { code: "collecting_data", message: "Collecting data: N of 24 readings" }`).
+   - *Assumption:* No missing slots are interpolated, following strict clinical data integrity guidelines.

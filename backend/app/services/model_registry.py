@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from datetime import datetime
 from ..inference import engine as legacy_engine
 from .e1_inference import e1_service
@@ -69,24 +69,50 @@ def run_model_inference(
     model_id: str,
     readings: list[float],
     latest_dt: datetime,
+    slot_dts: Optional[list[datetime]] = None,
+    bolus: Optional[list[Any]] = None,
+    basal: Optional[Union[float, list[Any], dict]] = None,
+    carbs: Optional[list[Any]] = None,
     insulin_events: Optional[list[dict]] = None,
     carb_events: Optional[list[dict]] = None
 ) -> dict[str, Any]:
     norm_id = normalize_model_id(model_id)
 
     if norm_id == "e1_gpformer":
+        # Handle backward compatibility with insulin_events / carb_events if bolus/carbs are None
+        if bolus is None and basal is None and insulin_events:
+            bolus_list = []
+            basal_list = []
+            for ev in insulin_events:
+                t = ev.get("type", "bolus")
+                if t == "basal":
+                    basal_list.append(ev)
+                else:
+                    bolus_list.append(ev)
+            bolus = bolus_list
+            basal = basal_list if basal_list else None
+        if carbs is None and carb_events:
+            carbs = carb_events
+
         result = e1_service.predict(
             readings=readings,
             latest_dt=latest_dt,
-            insulin_events=insulin_events,
-            carb_events=carb_events
+            slot_dts=slot_dts,
+            bolus=bolus,
+            basal=basal,
+            carbs=carbs
         )
         return {
             "model_id": "e1_gpformer",
-            "model_name": "E1 Multimodal GPFormer (3-Seed Ensemble)",
+            "model_name": result.get("model_name", "E1 Multimodal GPFormer (3-Seed Ensemble)"),
             "mode": result["mode"],
+            "inputs_used": result.get("inputs_used", ["cgm"]),
+            "forecast_origin": result.get("forecast_origin"),
+            "now_mgdl": result.get("now_mgdl"),
+            "checkpoint_sha256": result.get("checkpoint_sha256"),
             "forecast": result["forecast"],
-            "clinical_alert": result["clinical_alert"],
+            "clinical_alert": result.get("clinical_alert"),
+            "inspector": result.get("inspector"),
             "model_version": result["model_version"],
             "disclaimer": result["disclaimer"]
         }
@@ -96,6 +122,10 @@ def run_model_inference(
             "model_id": "experiment_a",
             "model_name": "Experiment A (REPLACE-BG)",
             "mode": "cgm_only",
+            "inputs_used": ["cgm"],
+            "forecast_origin": latest_dt.isoformat(),
+            "now_mgdl": float(readings[-1]),
+            "checkpoint_sha256": {},
             "forecast": [s.model_dump() for s in res.forecast],
             "clinical_alert": res.clinical_alert.model_dump(),
             "model_version": res.model_version,
@@ -107,6 +137,10 @@ def run_model_inference(
             "model_id": "experiment_b",
             "model_name": "Experiment B (REPLACE-BG + Shanghai T2D)",
             "mode": "cgm_only",
+            "inputs_used": ["cgm"],
+            "forecast_origin": latest_dt.isoformat(),
+            "now_mgdl": float(readings[-1]),
+            "checkpoint_sha256": {},
             "forecast": [s.model_dump() for s in res.forecast],
             "clinical_alert": res.clinical_alert.model_dump(),
             "model_version": res.model_version,

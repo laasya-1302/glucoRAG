@@ -47,7 +47,7 @@ export class BleClient {
   /**
    * Prompts the user to select the GlucoseTransmitter device and connects GATT.
    */
-  async connect() {
+  async connect(options = {}) {
     if (!BleClient.isSupported()) {
       throw new Error(
         "Web Bluetooth is not supported in this browser. Please use Google Chrome or Microsoft Edge on desktop with HTTPS or localhost."
@@ -57,14 +57,22 @@ export class BleClient {
     this._updateStatus({ state: 'connecting', deviceName: null });
 
     try {
-      // Request device with service filter and optionalServices so we can access characteristics
-      this.device = await navigator.bluetooth.requestDevice({
-        filters: [
-          { name: BLE_CONSTANTS.DEVICE_NAME },
-          { services: [BLE_CONSTANTS.SERVICE_UUID] }
-        ],
-        optionalServices: [BLE_CONSTANTS.SERVICE_UUID]
-      });
+      // Request device with service filter or acceptAllDevices
+      const requestOptions = options.acceptAll
+        ? {
+            acceptAllDevices: true,
+            optionalServices: [BLE_CONSTANTS.SERVICE_UUID]
+          }
+        : {
+            filters: [
+              { services: [BLE_CONSTANTS.SERVICE_UUID] },
+              { name: BLE_CONSTANTS.DEVICE_NAME },
+              { namePrefix: "Glucose" }
+            ],
+            optionalServices: [BLE_CONSTANTS.SERVICE_UUID]
+          };
+
+      this.device = await navigator.bluetooth.requestDevice(requestOptions);
 
       this.device.addEventListener('gattserverdisconnected', this.handleDisconnected);
 

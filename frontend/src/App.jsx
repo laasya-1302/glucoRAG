@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Header from './components/Header';
+import HeroSection from './components/HeroSection';
+import PatientHistoryView from './components/PatientHistoryView';
 import BluetoothCard from './components/BluetoothCard';
 import GlucoseInputForm from './components/GlucoseInputForm';
 import ForecastChart from './components/ForecastChart';
@@ -29,6 +31,7 @@ function getLocalDateTimeString() {
 function MainApp() {
   const { user, isLoading: isAuthLoading, isProfileModalOpen, setIsProfileModalOpen } = useAuth();
 
+  const [currentView, setCurrentView] = useState('home'); // 'home' | 'history'
   const [readings, setReadings] = useState(DEFAULT_READINGS);
   const [latestTimestamp, setLatestTimestamp] = useState(getLocalDateTimeString());
   const [selectedExperiment, setSelectedExperiment] = useState("e1_gpformer");
@@ -334,6 +337,42 @@ function MainApp() {
     );
   }
 
+  const scrollToPrediction = () => {
+    setCurrentView('home');
+    setTimeout(() => {
+      const el = document.getElementById('prediction-section');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 60);
+  };
+
+  const scrollToModelInfo = () => {
+    setCurrentView('home');
+    setTimeout(() => {
+      const el = document.getElementById('model-info-section');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 60);
+  };
+
+  const handleLoadHistoricalRecord = (record) => {
+    if (!record || !record.inputs) return;
+    const pastReadings = record.inputs.readings;
+    if (Array.isArray(pastReadings) && pastReadings.length === 24) {
+      const strVals = pastReadings.map(v => typeof v === 'object' && v !== null ? String(v.glucose) : String(v));
+      setReadings(strVals);
+    }
+    if (record.inputs.latest_timestamp) {
+      setLatestTimestamp(record.inputs.latest_timestamp.slice(0, 16));
+    }
+    if (record.model_id) {
+      setSelectedExperiment(record.model_id);
+    }
+    scrollToPrediction();
+  };
+
   // If user is not logged in, show clinical LoginPage
   if (!user) {
     return <LoginPage />;
@@ -348,103 +387,124 @@ function MainApp() {
       />
 
       <Header
+        currentView={currentView}
+        onChangeView={setCurrentView}
         selectedExp={selectedExperiment}
         onSelectExp={(exp) => setSelectedExperiment(exp)}
         availableExps={modelInfo?.available_experiments}
         healthStatus={health}
         onRefreshHealth={checkHealthAndModel}
         onOpenProfile={() => setIsProfileModalOpen(true)}
+        onTryPrediction={scrollToPrediction}
       />
 
+      {currentView === 'home' && (
+        <HeroSection
+          onTryPrediction={scrollToPrediction}
+          onLearnMore={scrollToModelInfo}
+        />
+      )}
+
       <main className="main-content">
-        {apiError && (
-          <ErrorBanner
-            error={apiError}
-            onRetry={handlePredict}
-            onDismiss={() => setApiError(null)}
+        {currentView === 'history' ? (
+          <PatientHistoryView
+            onOpenProfile={() => setIsProfileModalOpen(true)}
+            onLoadHistoricalRecord={handleLoadHistoricalRecord}
           />
+        ) : (
+          <div id="prediction-section">
+            {apiError && (
+              <ErrorBanner
+                error={apiError}
+                onRetry={handlePredict}
+                onDismiss={() => setApiError(null)}
+              />
+            )}
+
+            {/* Bluetooth (BLE) Integration Card */}
+            <BluetoothCard
+              bleStatus={bleStatus}
+              onConnect={handleConnectBle}
+              onDisconnect={handleDisconnectBle}
+              onRequestHistory={handleRequestHistory}
+              onClearHistory={handleClearBleHistory}
+              latestReading={latestBleReading}
+              receivedCount={bleHistoryCount}
+              transferProgress={transferProgress}
+              isConnecting={isConnecting}
+            />
+
+            {/* Glucose & Multimodal Inputs */}
+            <GlucoseInputForm
+              readings={readings}
+              setReadings={setReadings}
+              latestTimestamp={latestTimestamp}
+              setLatestTimestamp={setLatestTimestamp}
+              onSubmit={handlePredict}
+              isLoading={isLoading}
+              formError={formError}
+              setFormError={setFormError}
+              isInsulinOn={isInsulinOn}
+              setIsInsulinOn={setIsInsulinOn}
+              isCarbsOn={isCarbsOn}
+              setIsCarbsOn={setIsCarbsOn}
+              bolusSlots={bolusSlots}
+              setBolusSlots={setBolusSlots}
+              carbSlots={carbSlots}
+              setCarbSlots={setCarbSlots}
+              basalRate={basalRate}
+              setBasalRate={setBasalRate}
+              basalStartTime={basalStartTime}
+              setBasalStartTime={setBasalStartTime}
+              isDemoActive={isDemoActive}
+              setIsDemoActive={setIsDemoActive}
+            />
+
+            {/* Prediction Results Section */}
+            {predictionResult && (
+              <section className="results-section">
+                <ClinicalAlertCard
+                  alert={predictionResult.clinical_alert}
+                  experimentName={predictionResult.model_name || predictionResult.experiment_description}
+                  disclaimer={predictionResult.disclaimer}
+                  mode={predictionResult.mode}
+                  inputsUsed={predictionResult.inputs_used}
+                />
+
+                <ForecastChart
+                  historicalReadings={readings}
+                  forecastData={predictionResult.forecast}
+                  units={predictionResult.units}
+                />
+
+                <ForecastTable
+                  forecast={predictionResult.forecast}
+                  units={predictionResult.units}
+                  mode={predictionResult.mode}
+                  inputsUsed={predictionResult.inputs_used}
+                  modelName={predictionResult.model_name}
+                  checkpointHashes={predictionResult.checkpoint_sha256}
+                />
+
+                <RequestInspector
+                  requestPayload={lastSentPayload}
+                  predictionResult={predictionResult}
+                  isDev={isDev}
+                  onToggleDev={() => setIsDev(prev => !prev)}
+                />
+              </section>
+            )}
+
+            {/* Model Information Card */}
+            <div id="model-info-section">
+              <ModelInfoCard
+                modelInfo={modelInfo}
+                activeExperiment={selectedExperiment}
+                onSelectExperiment={(exp) => setSelectedExperiment(exp)}
+              />
+            </div>
+          </div>
         )}
-
-        {/* Bluetooth (BLE) Integration Card */}
-        <BluetoothCard
-          bleStatus={bleStatus}
-          onConnect={handleConnectBle}
-          onDisconnect={handleDisconnectBle}
-          onRequestHistory={handleRequestHistory}
-          onClearHistory={handleClearBleHistory}
-          latestReading={latestBleReading}
-          receivedCount={bleHistoryCount}
-          transferProgress={transferProgress}
-          isConnecting={isConnecting}
-        />
-
-        {/* Glucose & Multimodal Inputs */}
-        <GlucoseInputForm
-          readings={readings}
-          setReadings={setReadings}
-          latestTimestamp={latestTimestamp}
-          setLatestTimestamp={setLatestTimestamp}
-          onSubmit={handlePredict}
-          isLoading={isLoading}
-          formError={formError}
-          setFormError={setFormError}
-          isInsulinOn={isInsulinOn}
-          setIsInsulinOn={setIsInsulinOn}
-          isCarbsOn={isCarbsOn}
-          setIsCarbsOn={setIsCarbsOn}
-          bolusSlots={bolusSlots}
-          setBolusSlots={setBolusSlots}
-          carbSlots={carbSlots}
-          setCarbSlots={setCarbSlots}
-          basalRate={basalRate}
-          setBasalRate={setBasalRate}
-          basalStartTime={basalStartTime}
-          setBasalStartTime={setBasalStartTime}
-          isDemoActive={isDemoActive}
-          setIsDemoActive={setIsDemoActive}
-        />
-
-        {/* Prediction Results Section */}
-        {predictionResult && (
-          <section className="results-section">
-            <ClinicalAlertCard
-              alert={predictionResult.clinical_alert}
-              experimentName={predictionResult.model_name || predictionResult.experiment_description}
-              disclaimer={predictionResult.disclaimer}
-              mode={predictionResult.mode}
-              inputsUsed={predictionResult.inputs_used}
-            />
-
-            <ForecastChart
-              historicalReadings={readings}
-              forecastData={predictionResult.forecast}
-              units={predictionResult.units}
-            />
-
-            <ForecastTable
-              forecast={predictionResult.forecast}
-              units={predictionResult.units}
-              mode={predictionResult.mode}
-              inputsUsed={predictionResult.inputs_used}
-              modelName={predictionResult.model_name}
-              checkpointHashes={predictionResult.checkpoint_sha256}
-            />
-
-            <RequestInspector
-              requestPayload={lastSentPayload}
-              predictionResult={predictionResult}
-              isDev={isDev}
-              onToggleDev={() => setIsDev(prev => !prev)}
-            />
-          </section>
-        )}
-
-        {/* Model Information Card */}
-        <ModelInfoCard
-          modelInfo={modelInfo}
-          activeExperiment={selectedExperiment}
-          onSelectExperiment={(exp) => setSelectedExperiment(exp)}
-        />
       </main>
 
       <footer className="app-footer">

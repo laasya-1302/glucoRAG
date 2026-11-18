@@ -285,3 +285,29 @@ export async function sendChatMessage({ message, history = [], glucoseContext = 
 
   return data;
 }
+
+// ---------------- PATIENT HISTORY API ----------------
+
+export async function fetchPredictionHistory(limit = 50) {
+  const res = await fetch(`${API_BASE_URL}/v1/history/predictions?limit=${limit}`, {
+    method: "GET",
+    credentials: "include",
+    headers: getHeaders()
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch history (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function clearPredictionHistory() {
+  const res = await fetch(`${API_BASE_URL}/v1/history/predictions`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: getHeaders()
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to clear history (${res.status})`);
+  }
+  return res.json();
+}

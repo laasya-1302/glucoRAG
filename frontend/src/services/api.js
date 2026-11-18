@@ -144,34 +144,26 @@ export async function fetchV1Models() {
 export async function forecastV1({
   modelId = "e1_gpformer",
   readings = [],
-<<<<<<< HEAD
   units = "mg/dL",
   bolus = null,
   basal = null,
   carbs = null,
   grid = "manual",
-  latestTimestamp = null
-=======
   latestTimestamp = null,
   bolusEvents = undefined,
   basalEvents = undefined,
   carbEvents = undefined,
   insulinEvents = undefined
->>>>>>> origin/main
 }) {
   const payload = {
     model_id: modelId,
     readings: readings.map(r => (typeof r === 'object' && r !== null) ? r : Number(r)),
-<<<<<<< HEAD
     units,
     bolus,
     basal,
     carbs,
     grid,
-    latest_timestamp: latestTimestamp || null
-=======
     latest_timestamp: latestTimestamp || null,
->>>>>>> origin/main
   };
 
   if (bolusEvents !== undefined) {
@@ -209,7 +201,6 @@ export async function forecastV1({
 }
 
 export async function predictGlucose(readings, latestTimestamp, experiment = "e1_gpformer", options = {}) {
-<<<<<<< HEAD
   // Support both legacy predict and v1 forecast
   if (experiment === "e1_gpformer") {
     return forecastV1({
@@ -219,21 +210,19 @@ export async function predictGlucose(readings, latestTimestamp, experiment = "e1
       bolus: options.bolus ?? null,
       basal: options.basal ?? null,
       carbs: options.carbs ?? null,
-      grid: options.grid || "manual"
+      grid: options.grid || "manual",
+      bolusEvents: options.bolusEvents,
+      basalEvents: options.basalEvents,
+      carbEvents: options.carbEvents,
+      insulinEvents: options.insulinEvents
     });
   }
 
-=======
->>>>>>> origin/main
   const payload = {
     readings: readings.map(r => (typeof r === 'object' && r !== null) ? r : Number(r)),
     latest_timestamp: latestTimestamp || null,
     experiment: experiment,
-<<<<<<< HEAD
-    model_id: experiment
-=======
     model_id: experiment,
->>>>>>> origin/main
   };
 
   // Three-state logic: null = not available, [] = available/no events, [...] = events present

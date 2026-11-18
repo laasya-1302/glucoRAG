@@ -1,21 +1,15 @@
 import React from 'react';
 import { Table, ShieldAlert, CheckCircle, AlertTriangle, ShieldCheck, Database, Hash } from 'lucide-react';
 
-<<<<<<< HEAD
 export default function ForecastTable({ 
   forecast, 
   units = "mg/dL",
   mode = "cgm_only",
   inputsUsed = ["cgm"],
   modelName = "E1 Multimodal GPFormer",
-  checkpointHashes = null
-=======
-export default function ForecastTable({
-  forecast,
-  units = "mg/dL",
+  checkpointHashes = null,
   compareWithCgmOnly = false,
   horizonDiffs = []
->>>>>>> origin/main
 }) {
   if (!forecast || forecast.length === 0) return null;
 
@@ -34,7 +28,7 @@ export default function ForecastTable({
         <div>
           <h2 className="card-title flex-align">
             <Table size={18} className="text-teal" />
-            <span>Multi-Horizon Forecast & Calibrated Risk Distribution</span>
+            <span>Multi-Horizon Forecast &amp; Calibrated Risk Distribution</span>
           </h2>
           <p className="card-description">
             Quantile forecasts, calibrated uncertainty bounds, median-derived forecast class, and frozen threshold alerts.
@@ -44,7 +38,7 @@ export default function ForecastTable({
         {/* Model & Input Features Metadata */}
         <div className="model-meta-badges">
           <span className="badge-meta">
-            <strong>Mode:</strong> {mode === 'multimodal' ? 'Multimodal (E1)' : 'CGM-only (E1_cgmonly)'}
+            <strong>Mode:</strong> {mode === 'multimodal' || mode === 'E1' ? 'Multimodal (E1)' : 'CGM-only'}
           </span>
           <span className="badge-meta">
             <strong>Inputs:</strong> {Array.isArray(inputsUsed) ? inputsUsed.join(', ') : 'cgm'}
@@ -62,29 +56,19 @@ export default function ForecastTable({
               <th>Step</th>
               <th>Horizon</th>
               <th>Est. Time</th>
-<<<<<<< HEAD
-              <th>Median</th>
+              <th>Median (q50)</th>
+              {compareWithCgmOnly && <th>Diff vs Glucose Only</th>}
               <th>10%–90% Band</th>
+              <th>Bandwidth</th>
               <th>P(low) &lt;70</th>
               <th>P(normal) 70–180</th>
               <th>P(high) &gt;180</th>
               <th>Forecast Class (Median)</th>
               <th>Threshold Alert</th>
-=======
-              <th>Median (q50)</th>
-              {compareWithCgmOnly && <th>Diff vs Glucose Only</th>}
-              <th>10%–90% Interval</th>
-              <th>Bandwidth</th>
-              <th>Hypo Risk (&lt;70)</th>
-              <th>Normal (70-180)</th>
-              <th>Hyper Risk (&gt;180)</th>
-              <th>Risk Status</th>
->>>>>>> origin/main
             </tr>
           </thead>
           <tbody>
             {forecast.map((row) => {
-<<<<<<< HEAD
               const med = row.median ?? row.glucose_median;
               // Forecast class derived STRICTLY from MEDIAN (<70 low, 70-180 normal, >180 high)
               const fClass = row.forecast_class || (med < 70 ? 'low' : med <= 180 ? 'normal' : 'high');
@@ -92,13 +76,11 @@ export default function ForecastTable({
 
               const isHypoAlert = alertMsg === "Possible low glucose";
               const isHyperAlert = alertMsg === "Possible high glucose";
-=======
-              const isHypo = row.predicted_risk_class === 'HYPO';
-              const isHyper = row.predicted_risk_class === 'HYPER';
-              const isNormal = row.predicted_risk_class === 'NORMAL';
-              const hypoAlert = row.risk_probabilities.hypo >= 0.30;
               const diffItem = horizonDiffs?.find(d => d.step === row.step);
->>>>>>> origin/main
+
+              const lo = row.lo ?? row.uncertainty_band?.low_q10;
+              const hi = row.hi ?? row.uncertainty_band?.high_q90;
+              const bandwidth = (lo != null && hi != null) ? (hi - lo).toFixed(1) : '—';
 
               return (
                 <tr key={row.step} className={isHypoAlert ? 'row-alert-hypo' : ''}>
@@ -121,8 +103,11 @@ export default function ForecastTable({
                   )}
                   <td>
                     <span className="font-mono text-slate">
-                      [{row.lo ?? row.uncertainty_band?.low_q10} – {row.hi ?? row.uncertainty_band?.high_q90}]
+                      [{lo} – {hi}]
                     </span>
+                  </td>
+                  <td>
+                    <span className="font-mono text-slate">{bandwidth} {units}</span>
                   </td>
                   <td>
                     <div className="prob-bar-container">

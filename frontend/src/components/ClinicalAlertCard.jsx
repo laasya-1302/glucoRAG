@@ -1,20 +1,16 @@
 import React from 'react';
 import { ShieldCheck, ShieldAlert, AlertTriangle, AlertCircle } from 'lucide-react';
 
-<<<<<<< HEAD
-export default function ClinicalAlertCard({ alert, experimentName, disclaimer, mode, inputsUsed }) {
-=======
 export default function ClinicalAlertCard({
   alert,
   experimentName,
   disclaimer,
   mode,
-  _inputsUsed,
+  inputsUsed,
   compareWithCgmOnly = false,
   onToggleCompare = null,
   isComparing = false
 }) {
->>>>>>> origin/main
   if (!alert) return null;
 
   const isHypo = alert.status === "HYPO_RISK";
@@ -34,33 +30,27 @@ export default function ClinicalAlertCard({
     title = "Hyperglycemia Risk Projected (> 180 mg/dL)";
   }
 
-<<<<<<< HEAD
+  // Determine mode label and styling
   const isMultimodal = mode === "multimodal" || mode === "E1";
-  let modeLabel = "glucose only";
-  if (isMultimodal) {
-    if (Array.isArray(inputsUsed) && inputsUsed.length > 0) {
-      const mapped = inputsUsed.map(i => {
-        if (i === 'cgm') return 'glucose';
-        if (i === 'bolus' || i === 'basal') return 'insulin';
-        return i;
-      });
-      modeLabel = [...new Set(mapped)].join(" + ");
-    } else {
-      modeLabel = "glucose + insulin + carbs";
-=======
-  // Determine mode label and styling ("glucose + insulin + carbs" or "glucose only")
-  const isMultimodal = mode === 'E1';
 
   let modeLabel = null;
   let modeClass = 'mode-cgmonly';
   if (mode) {
     if (isMultimodal) {
-      modeLabel = 'glucose + insulin + carbs';
+      if (Array.isArray(inputsUsed) && inputsUsed.length > 0) {
+        const mapped = inputsUsed.map(i => {
+          if (i === 'cgm') return 'glucose';
+          if (i === 'bolus' || i === 'basal') return 'insulin';
+          return i;
+        });
+        modeLabel = [...new Set(mapped)].join(" + ");
+      } else {
+        modeLabel = "glucose + insulin + carbs";
+      }
       modeClass = 'mode-multimodal';
     } else {
-      modeLabel = 'glucose only';
+      modeLabel = "glucose only";
       modeClass = 'mode-cgmonly';
->>>>>>> origin/main
     }
   }
 
@@ -79,10 +69,9 @@ export default function ClinicalAlertCard({
               </span>
             )}
             <span className="model-source-pill">{experimentName}</span>
-<<<<<<< HEAD
-            {mode && (
-              <span 
-                className="mode-pill"
+            {modeLabel && (
+              <span
+                className={`mode-pill ${modeClass}`}
                 style={{
                   background: isMultimodal ? '#ecfdf5' : '#f1f5f9',
                   color: isMultimodal ? '#047857' : '#475569',
@@ -94,10 +83,6 @@ export default function ClinicalAlertCard({
                   textTransform: 'lowercase'
                 }}
               >
-=======
-            {modeLabel && (
-              <span className={`mode-label ${modeClass}`}>
->>>>>>> origin/main
                 {modeLabel}
               </span>
             )}

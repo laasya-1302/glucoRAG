@@ -223,3 +223,29 @@ export async function predictGlucose(readings, latestTimestamp, experiment = "e1
 
   return data;
 }
+
+// ---------------- PATIENT CHATBOT API ----------------
+
+export async function sendChatMessage({ message, history = [], glucoseContext = null }) {
+  const payload = {
+    message,
+    history,
+    glucose_context: glucoseContext
+  };
+
+  const res = await fetch(`${API_BASE_URL}/v1/chat`, {
+    method: "POST",
+    credentials: "include",
+    headers: getHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    const errorMsg = data?.message || data?.error || (typeof data?.detail === "string" ? data.detail : data?.detail?.message) || `Chat error (${res.status})`;
+    throw new Error(errorMsg);
+  }
+
+  return data;
+}

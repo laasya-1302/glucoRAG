@@ -153,7 +153,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { err ->
                 _predictionResult.value = null
                 _alertStatusText.value = "Inference error: ${err.message}"
-                _userFeedback.value = "Connection error: ${err.message}. Current laptop IP is 192.168.1.4:8000"
+                _userFeedback.value = "Connection error: ${err.message}. Please check that backend URL is http://192.168.1.2:8000"
             }
 
             _isPredicting.value = false

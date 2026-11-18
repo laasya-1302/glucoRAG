@@ -10,6 +10,7 @@ import ErrorBanner from './components/ErrorBanner';
 import RequestInspector from './components/RequestInspector';
 import LoginPage from './components/LoginPage';
 import ProfileCompletionModal from './components/ProfileCompletionModal';
+import Chatbot from './components/Chatbot';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { fetchHealth, fetchModelInfo, forecastV1 } from './services/api';
 import { bleClient } from './services/ble';
@@ -451,6 +452,12 @@ function MainApp() {
           GPFormer Blood Glucose Forecasting System &copy; 2026. Built with FastAPI backend and React frontend.
         </p>
       </footer>
+
+      {/* Patient Decision Support Chatbot */}
+      <Chatbot
+        latestReading={readings && readings.length > 0 ? readings[readings.length - 1] : null}
+        predictionResult={predictionResult}
+      />
     </div>
   );
 }

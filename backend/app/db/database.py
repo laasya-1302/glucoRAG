@@ -1,9 +1,10 @@
 import sqlite3
 import uuid
 import secrets
+import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, NamedTuple
+from typing import Optional, NamedTuple, Any, Dict, List
 from ..config import settings
 
 class UserRecord(NamedTuple):
@@ -77,6 +78,28 @@ class Database:
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+            )
+            """)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS patient_predictions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                timestamp TEXT NOT NULL,
+                model_id TEXT NOT NULL,
+                inputs_json TEXT NOT NULL,
+                results_json TEXT NOT NULL,
+                summary TEXT NOT NULL
+            )
+            """)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS patient_chat_history (
+                id TEXT PRIMARY KEY,
+                user_id TEXT,
+                timestamp TEXT NOT NULL,
+                role TEXT NOT NULL,
+                message TEXT NOT NULL,
+                model TEXT,
+                glucose_context TEXT
             )
             """)
             conn.commit()
@@ -220,6 +243,194 @@ class Database:
     def delete_user_sessions(self, user_id: str) -> bool:
         with self.get_connection() as conn:
             cursor = conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # ══════════════════════════════════════════════════════════════
+    # Patient Prediction & Input History
+    # ══════════════════════════════════════════════════════════════
+
+    def save_prediction(
+        self,
+        user_id: Optional[str],
+        model_id: str,
+        inputs: Dict[str, Any],
+        results: Dict[str, Any],
+        summary: str
+    ) -> Dict[str, Any]:
+        pred_id = str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO patient_predictions (id, user_id, timestamp, model_id, inputs_json, results_json, summary)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    pred_id,
+                    user_id or "patient-default",
+                    now_iso,
+                    model_id,
+                    json.dumps(inputs),
+                    json.dumps(results),
+                    summary
+                )
+            )
+            conn.commit()
+
+        return {
+            "id": pred_id,
+            "timestamp": now_iso,
+            "model_id": model_id,
+            "summary": summary
+        }
+
+    def get_patient_predictions(self, user_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            if user_id and user_id != "patient-default":
+                rows = conn.execute(
+                    """
+                    SELECT id, user_id, timestamp, model_id, inputs_json, results_json, summary
+                    FROM patient_predictions
+                    WHERE user_id = ? OR user_id = 'patient-default'
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    """,
+                    (user_id, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, user_id, timestamp, model_id, inputs_json, results_json, summary
+                    FROM patient_predictions
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    """,
+                    (limit,)
+                ).fetchall()
+
+            history = []
+            for r in rows:
+                try:
+                    inputs = json.loads(r["inputs_json"])
+                except Exception:
+                    inputs = {}
+                try:
+                    results = json.loads(r["results_json"])
+                except Exception:
+                    results = {}
+
+                history.append({
+                    "id": r["id"],
+                    "user_id": r["user_id"],
+                    "timestamp": r["timestamp"],
+                    "model_id": r["model_id"],
+                    "summary": r["summary"],
+                    "inputs": inputs,
+                    "results": results
+                })
+            return history
+
+    def clear_patient_predictions(self, user_id: Optional[str] = None) -> bool:
+        with self.get_connection() as conn:
+            if user_id and user_id != "patient-default":
+                cursor = conn.execute(
+                    "DELETE FROM patient_predictions WHERE user_id = ? OR user_id = 'patient-default'",
+                    (user_id,)
+                )
+            else:
+                cursor = conn.execute("DELETE FROM patient_predictions")
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # ══════════════════════════════════════════════════════════════
+    # Patient Chatbot Conversation History
+    # ══════════════════════════════════════════════════════════════
+
+    def save_chat_message(
+        self,
+        user_id: Optional[str],
+        role: str,
+        message: str,
+        model: Optional[str] = None,
+        glucose_context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        msg_id = str(uuid.uuid4())
+        now_iso = datetime.now(timezone.utc).isoformat()
+        ctx_str = json.dumps(glucose_context) if glucose_context else None
+
+        with self.get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO patient_chat_history (id, user_id, timestamp, role, message, model, glucose_context)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    msg_id,
+                    user_id or "patient-default",
+                    now_iso,
+                    role,
+                    message,
+                    model,
+                    ctx_str
+                )
+            )
+            conn.commit()
+
+        return {
+            "id": msg_id,
+            "role": role,
+            "message": message,
+            "timestamp": now_iso,
+            "model": model
+        }
+
+    def get_patient_chat_history(self, user_id: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            if user_id and user_id != "patient-default":
+                rows = conn.execute(
+                    """
+                    SELECT id, user_id, timestamp, role, message, model, glucose_context
+                    FROM patient_chat_history
+                    WHERE user_id = ? OR user_id = 'patient-default'
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                    """,
+                    (user_id, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT id, user_id, timestamp, role, message, model, glucose_context
+                    FROM patient_chat_history
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                    """,
+                    (limit,)
+                ).fetchall()
+
+            history = []
+            for r in rows:
+                history.append({
+                    "id": r["id"],
+                    "user_id": r["user_id"],
+                    "timestamp": r["timestamp"],
+                    "role": r["role"],
+                    "message": r["message"],
+                    "content": r["message"],  # Frontend alias
+                    "model": r["model"]
+                })
+            return history
+
+    def clear_patient_chat_history(self, user_id: Optional[str] = None) -> bool:
+        with self.get_connection() as conn:
+            if user_id and user_id != "patient-default":
+                cursor = conn.execute(
+                    "DELETE FROM patient_chat_history WHERE user_id = ? OR user_id = 'patient-default'",
+                    (user_id,)
+                )
+            else:
+                cursor = conn.execute("DELETE FROM patient_chat_history")
             conn.commit()
             return cursor.rowcount > 0
 

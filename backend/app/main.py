@@ -17,8 +17,10 @@ from .services.model_registry import (
     get_registered_models, is_model_supported, run_model_inference, normalize_model_id
 )
 from .routers.auth import router as auth_router
+from .routers.chat import router as chat_router
+from .routers.history import router as history_router
 from .auth.security import require_complete_profile
-from .db.database import UserRecord
+from .db.database import db, UserRecord
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("gpformer_api")
@@ -58,6 +60,8 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(chat_router)
+app.include_router(history_router)
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -224,7 +228,7 @@ def forecast_v1(
         elif isinstance(alert_obj, dict):
             alert_obj = ClinicalAlert(**alert_obj)
 
-        return ForecastV1Response(
+        resp = ForecastV1Response(
             status="success",
             model_id=raw_result["model_id"],
             model_name=raw_result["model_name"],
@@ -246,6 +250,37 @@ def forecast_v1(
             model_version=raw_result.get("model_version", "1.0.0"),
             disclaimer=raw_result.get("disclaimer", "")
         )
+
+        # Auto-save patient inputs & prediction results to history
+        try:
+            summary_str = f"Now: {validated_readings[-1]:.0f} mg/dL | +30m: {forecast_30m or '--'} mg/dL ({alert_obj.status})"
+            inputs_data = {
+                "readings": validated_readings,
+                "latest_timestamp": latest_dt.isoformat(),
+                "bolus": payload.bolus,
+                "basal": payload.basal,
+                "carbs": payload.carbs,
+                "grid": payload.grid
+            }
+            results_data = {
+                "forecast_30m": forecast_30m,
+                "forecast_60m": forecast_60m,
+                "forecast_90m": forecast_90m,
+                "forecast_120m": forecast_120m,
+                "clinical_alert": alert_obj.model_dump() if hasattr(alert_obj, "model_dump") else alert_obj,
+                "forecast": forecast_steps
+            }
+            db.save_prediction(
+                user_id=user.id if user else "patient-default",
+                model_id=model_id,
+                inputs=inputs_data,
+                results=results_data,
+                summary=summary_str
+            )
+        except Exception as save_err:
+            logger.warning(f"Failed to auto-save forecast to database: {save_err}")
+
+        return resp
     except HTTPException:
         raise
     except ValueError as ve:

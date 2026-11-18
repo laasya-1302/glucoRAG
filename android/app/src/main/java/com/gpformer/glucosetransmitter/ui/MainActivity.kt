@@ -198,6 +198,16 @@ class MainActivity : AppCompatActivity() {
         binding.btnRunPredictionNow.setOnClickListener {
             viewModel.runPredictionInference()
         }
+
+        binding.btnQuickSeedHypo.setOnClickListener {
+            requestNotificationPermission()
+            viewModel.seedHypoReadings()
+        }
+
+        binding.btnQuickSeedHyper.setOnClickListener {
+            requestNotificationPermission()
+            viewModel.seedHyperReadings()
+        }
     }
 
     // ── State Observation ──

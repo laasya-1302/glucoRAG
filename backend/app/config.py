@@ -1,9 +1,15 @@
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 
 # Resolve base directories safely
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+
+# Preload environment variables from all possible locations
+load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(PROJECT_ROOT / "backend" / ".env")
+load_dotenv()
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "GPFormer Glucose Forecasting API"
@@ -45,6 +51,11 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:5173")
     DB_PATH: Path = Path(os.getenv("DB_PATH", str(PROJECT_ROOT / "data" / "app.db")))
     
+    # LLM / Chatbot
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+    FALLBACK_GEMINI_MODELS: str = os.getenv("FALLBACK_GEMINI_MODELS", "gemini-3.5-flash-lite,gemini-flash-latest")
+
     # Server / CORS
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
@@ -55,7 +66,11 @@ class Settings(BaseSettings):
     ]
     
     model_config = {
-        "env_file": ".env",
+        "env_file": [
+            str(PROJECT_ROOT / ".env"),
+            str(PROJECT_ROOT / "backend" / ".env"),
+            ".env"
+        ],
         "extra": "allow"
     }
 

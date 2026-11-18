@@ -423,6 +423,34 @@
                         app:backgroundTint="@color/btn_start" />
                 </LinearLayout>
 
+                <!-- Direct ML Simulation Presets for Instant Watch Alerts -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingTop="6dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnQuickSeedHypo"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
+                        android:text="Seed Hypo (52)"
+                        android:textSize="11sp"
+                        app:backgroundTint="@color/risk_hypo" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnQuickSeedHyper"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="4dp"
+                        android:text="Seed Hyper (240)"
+                        android:textSize="11sp"
+                        app:backgroundTint="@color/risk_hyper" />
+                </LinearLayout>
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

@@ -229,6 +229,6 @@ class BackendApiClient(context: Context) {
         private const val KEY_BASE_URL = "key_base_url"
 
         // Defaults to your laptop's current active Wi-Fi IP address
-        const val DEFAULT_BASE_URL = "http://192.168.1.6:8000"
+        const val DEFAULT_BASE_URL = "http://192.168.1.2:8000"
     }
 }

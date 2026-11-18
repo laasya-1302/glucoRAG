@@ -1,6 +1,7 @@
 import React from 'react';
 import { Table, ShieldAlert, CheckCircle, AlertTriangle, ShieldCheck, Database, Hash } from 'lucide-react';
 
+<<<<<<< HEAD
 export default function ForecastTable({ 
   forecast, 
   units = "mg/dL",
@@ -8,6 +9,13 @@ export default function ForecastTable({
   inputsUsed = ["cgm"],
   modelName = "E1 Multimodal GPFormer",
   checkpointHashes = null
+=======
+export default function ForecastTable({
+  forecast,
+  units = "mg/dL",
+  compareWithCgmOnly = false,
+  horizonDiffs = []
+>>>>>>> origin/main
 }) {
   if (!forecast || forecast.length === 0) return null;
 
@@ -54,6 +62,7 @@ export default function ForecastTable({
               <th>Step</th>
               <th>Horizon</th>
               <th>Est. Time</th>
+<<<<<<< HEAD
               <th>Median</th>
               <th>10%–90% Band</th>
               <th>P(low) &lt;70</th>
@@ -61,10 +70,21 @@ export default function ForecastTable({
               <th>P(high) &gt;180</th>
               <th>Forecast Class (Median)</th>
               <th>Threshold Alert</th>
+=======
+              <th>Median (q50)</th>
+              {compareWithCgmOnly && <th>Diff vs Glucose Only</th>}
+              <th>10%–90% Interval</th>
+              <th>Bandwidth</th>
+              <th>Hypo Risk (&lt;70)</th>
+              <th>Normal (70-180)</th>
+              <th>Hyper Risk (&gt;180)</th>
+              <th>Risk Status</th>
+>>>>>>> origin/main
             </tr>
           </thead>
           <tbody>
             {forecast.map((row) => {
+<<<<<<< HEAD
               const med = row.median ?? row.glucose_median;
               // Forecast class derived STRICTLY from MEDIAN (<70 low, 70-180 normal, >180 high)
               const fClass = row.forecast_class || (med < 70 ? 'low' : med <= 180 ? 'normal' : 'high');
@@ -72,6 +92,13 @@ export default function ForecastTable({
 
               const isHypoAlert = alertMsg === "Possible low glucose";
               const isHyperAlert = alertMsg === "Possible high glucose";
+=======
+              const isHypo = row.predicted_risk_class === 'HYPO';
+              const isHyper = row.predicted_risk_class === 'HYPER';
+              const isNormal = row.predicted_risk_class === 'NORMAL';
+              const hypoAlert = row.risk_probabilities.hypo >= 0.30;
+              const diffItem = horizonDiffs?.find(d => d.step === row.step);
+>>>>>>> origin/main
 
               return (
                 <tr key={row.step} className={isHypoAlert ? 'row-alert-hypo' : ''}>
@@ -85,6 +112,13 @@ export default function ForecastTable({
                       {med} <span className="unit-label">{units}</span>
                     </strong>
                   </td>
+                  {compareWithCgmOnly && (
+                    <td>
+                      <span className={`diff-pill ${diffItem && diffItem.diff_mg_dl > 0 ? 'diff-pos' : (diffItem && diffItem.diff_mg_dl < 0 ? 'diff-neg' : 'diff-neutral')}`}>
+                        {diffItem ? `${diffItem.diff_mg_dl > 0 ? '+' : ''}${diffItem.diff_mg_dl.toFixed(1)} ${units}` : '—'}
+                      </span>
+                    </td>
+                  )}
                   <td>
                     <span className="font-mono text-slate">
                       [{row.lo ?? row.uncertainty_band?.low_q10} – {row.hi ?? row.uncertainty_band?.high_q90}]

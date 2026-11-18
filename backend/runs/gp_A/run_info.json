@@ -1,0 +1,26 @@
+{
+  "arch": {
+    "d_model": 128,
+    "n_heads": 8,
+    "e_layers": 3,
+    "d_ff": 2048,
+    "dropout": 0.05,
+    "embed": "cycF",
+    "freq": "cyc"
+  },
+  "norm": {
+    "mean": 148.5,
+    "std": 52.3
+  },
+  "mark_dim": 2,
+  "repo": "C:\\Users\\avnre\\Downloads\\diabetes\\gpformer",
+  "sources": [
+    "replacebg"
+  ],
+  "class_weights": [
+    1.4,
+    0.6,
+    1.2
+  ],
+  "experiment_name": "Experiment A (REPLACE-BG)"
+}

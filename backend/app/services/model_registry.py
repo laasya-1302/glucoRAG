@@ -69,12 +69,18 @@ def run_model_inference(
     model_id: str,
     readings: list[float],
     latest_dt: datetime,
+<<<<<<< HEAD
     slot_dts: Optional[list[datetime]] = None,
     bolus: Optional[list[Any]] = None,
     basal: Optional[Union[float, list[Any], dict]] = None,
     carbs: Optional[list[Any]] = None,
+=======
+    bolus_events: Optional[list[dict]] = None,
+    basal_events: Optional[list[dict]] = None,
+    carb_events: Optional[list[dict]] = None,
+    # Backward compat
+>>>>>>> origin/main
     insulin_events: Optional[list[dict]] = None,
-    carb_events: Optional[list[dict]] = None
 ) -> dict[str, Any]:
     norm_id = normalize_model_id(model_id)
 
@@ -97,19 +103,30 @@ def run_model_inference(
         result = e1_service.predict(
             readings=readings,
             latest_dt=latest_dt,
+<<<<<<< HEAD
             slot_dts=slot_dts,
             bolus=bolus,
             basal=basal,
             carbs=carbs
+=======
+            bolus_events=bolus_events,
+            basal_events=basal_events,
+            carb_events=carb_events,
+            insulin_events=insulin_events,
+>>>>>>> origin/main
         )
         return {
             "model_id": "e1_gpformer",
             "model_name": result.get("model_name", "E1 Multimodal GPFormer (3-Seed Ensemble)"),
             "mode": result["mode"],
+<<<<<<< HEAD
             "inputs_used": result.get("inputs_used", ["cgm"]),
             "forecast_origin": result.get("forecast_origin"),
             "now_mgdl": result.get("now_mgdl"),
             "checkpoint_sha256": result.get("checkpoint_sha256"),
+=======
+            "inputs_used": result.get("inputs_used", ["glucose", "time"]),
+>>>>>>> origin/main
             "forecast": result["forecast"],
             "clinical_alert": result.get("clinical_alert"),
             "inspector": result.get("inspector"),
@@ -122,10 +139,14 @@ def run_model_inference(
             "model_id": "experiment_a",
             "model_name": "Experiment A (REPLACE-BG)",
             "mode": "cgm_only",
+<<<<<<< HEAD
             "inputs_used": ["cgm"],
             "forecast_origin": latest_dt.isoformat(),
             "now_mgdl": float(readings[-1]),
             "checkpoint_sha256": {},
+=======
+            "inputs_used": ["glucose", "time"],
+>>>>>>> origin/main
             "forecast": [s.model_dump() for s in res.forecast],
             "clinical_alert": res.clinical_alert.model_dump(),
             "model_version": res.model_version,
@@ -137,10 +158,14 @@ def run_model_inference(
             "model_id": "experiment_b",
             "model_name": "Experiment B (REPLACE-BG + Shanghai T2D)",
             "mode": "cgm_only",
+<<<<<<< HEAD
             "inputs_used": ["cgm"],
             "forecast_origin": latest_dt.isoformat(),
             "now_mgdl": float(readings[-1]),
             "checkpoint_sha256": {},
+=======
+            "inputs_used": ["glucose", "time"],
+>>>>>>> origin/main
             "forecast": [s.model_dump() for s in res.forecast],
             "clinical_alert": res.clinical_alert.model_dump(),
             "model_version": res.model_version,

@@ -1,7 +1,20 @@
 import React from 'react';
 import { ShieldCheck, ShieldAlert, AlertTriangle, AlertCircle } from 'lucide-react';
 
+<<<<<<< HEAD
 export default function ClinicalAlertCard({ alert, experimentName, disclaimer, mode, inputsUsed }) {
+=======
+export default function ClinicalAlertCard({
+  alert,
+  experimentName,
+  disclaimer,
+  mode,
+  _inputsUsed,
+  compareWithCgmOnly = false,
+  onToggleCompare = null,
+  isComparing = false
+}) {
+>>>>>>> origin/main
   if (!alert) return null;
 
   const isHypo = alert.status === "HYPO_RISK";
@@ -21,6 +34,7 @@ export default function ClinicalAlertCard({ alert, experimentName, disclaimer, m
     title = "Hyperglycemia Risk Projected (> 180 mg/dL)";
   }
 
+<<<<<<< HEAD
   const isMultimodal = mode === "multimodal" || mode === "E1";
   let modeLabel = "glucose only";
   if (isMultimodal) {
@@ -33,6 +47,20 @@ export default function ClinicalAlertCard({ alert, experimentName, disclaimer, m
       modeLabel = [...new Set(mapped)].join(" + ");
     } else {
       modeLabel = "glucose + insulin + carbs";
+=======
+  // Determine mode label and styling ("glucose + insulin + carbs" or "glucose only")
+  const isMultimodal = mode === 'E1';
+
+  let modeLabel = null;
+  let modeClass = 'mode-cgmonly';
+  if (mode) {
+    if (isMultimodal) {
+      modeLabel = 'glucose + insulin + carbs';
+      modeClass = 'mode-multimodal';
+    } else {
+      modeLabel = 'glucose only';
+      modeClass = 'mode-cgmonly';
+>>>>>>> origin/main
     }
   }
 
@@ -51,6 +79,7 @@ export default function ClinicalAlertCard({ alert, experimentName, disclaimer, m
               </span>
             )}
             <span className="model-source-pill">{experimentName}</span>
+<<<<<<< HEAD
             {mode && (
               <span 
                 className="mode-pill"
@@ -65,11 +94,34 @@ export default function ClinicalAlertCard({ alert, experimentName, disclaimer, m
                   textTransform: 'lowercase'
                 }}
               >
+=======
+            {modeLabel && (
+              <span className={`mode-label ${modeClass}`}>
+>>>>>>> origin/main
                 {modeLabel}
               </span>
             )}
           </div>
           <p className="alert-message">{alert.message}</p>
+          {isMultimodal && (
+            <div className="multimodal-meta-row">
+              <p className="multimodal-note">
+                ⚠ Insulin and carbs usually change the forecast only slightly in testing.
+              </p>
+              {onToggleCompare && (
+                <label className="compare-toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={compareWithCgmOnly}
+                    onChange={(e) => onToggleCompare(e.target.checked)}
+                    disabled={isComparing}
+                  />
+                  <span>Compare with glucose only</span>
+                  {isComparing && <span className="comparing-spinner">…</span>}
+                </label>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

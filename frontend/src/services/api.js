@@ -144,23 +144,48 @@ export async function fetchV1Models() {
 export async function forecastV1({
   modelId = "e1_gpformer",
   readings = [],
+<<<<<<< HEAD
   units = "mg/dL",
   bolus = null,
   basal = null,
   carbs = null,
   grid = "manual",
   latestTimestamp = null
+=======
+  latestTimestamp = null,
+  bolusEvents = undefined,
+  basalEvents = undefined,
+  carbEvents = undefined,
+  insulinEvents = undefined
+>>>>>>> origin/main
 }) {
   const payload = {
     model_id: modelId,
     readings: readings.map(r => (typeof r === 'object' && r !== null) ? r : Number(r)),
+<<<<<<< HEAD
     units,
     bolus,
     basal,
     carbs,
     grid,
     latest_timestamp: latestTimestamp || null
+=======
+    latest_timestamp: latestTimestamp || null,
+>>>>>>> origin/main
   };
+
+  if (bolusEvents !== undefined) {
+    payload.bolus_events = bolusEvents;
+  }
+  if (basalEvents !== undefined) {
+    payload.basal_events = basalEvents;
+  }
+  if (carbEvents !== undefined) {
+    payload.carb_events = carbEvents;
+  }
+  if (insulinEvents !== undefined) {
+    payload.insulin_events = insulinEvents;
+  }
 
   const res = await fetch(`${API_BASE_URL}/v1/forecast`, {
     method: "POST",
@@ -184,6 +209,7 @@ export async function forecastV1({
 }
 
 export async function predictGlucose(readings, latestTimestamp, experiment = "e1_gpformer", options = {}) {
+<<<<<<< HEAD
   // Support both legacy predict and v1 forecast
   if (experiment === "e1_gpformer") {
     return forecastV1({
@@ -197,12 +223,33 @@ export async function predictGlucose(readings, latestTimestamp, experiment = "e1
     });
   }
 
+=======
+>>>>>>> origin/main
   const payload = {
     readings: readings.map(r => (typeof r === 'object' && r !== null) ? r : Number(r)),
     latest_timestamp: latestTimestamp || null,
     experiment: experiment,
+<<<<<<< HEAD
     model_id: experiment
+=======
+    model_id: experiment,
+>>>>>>> origin/main
   };
+
+  // Three-state logic: null = not available, [] = available/no events, [...] = events present
+  if (options.bolusEvents !== undefined) {
+    payload.bolus_events = options.bolusEvents;
+  } else if (options.insulinEvents !== undefined) {
+    payload.bolus_events = options.insulinEvents;
+  }
+
+  if (options.basalEvents !== undefined) {
+    payload.basal_events = options.basalEvents;
+  }
+
+  if (options.carbEvents !== undefined) {
+    payload.carb_events = options.carbEvents;
+  }
 
   const res = await fetch(`${API_BASE_URL}/predict`, {
     method: "POST",

@@ -1,4 +1,4 @@
-import json
+﻿import json
 from pathlib import Path
 from datetime import datetime, timedelta
 import pytest
@@ -88,7 +88,7 @@ def test_bolus_slot_12_07():
     """
     dt = datetime(2026, 10, 27, 12, 15, 0)
     bolus_event = [{"timestamp": "2026-10-27T12:07:00", "units": 4.0}]
-    x, mode = e1_service.preprocess(VALID_24, dt, bolus_events=bolus_event)
+    x, mode, _inputs = e1_service.preprocess(VALID_24, dt, bolus_events=bolus_event)
 
     assert mode == "E1"
     # Slot 23 corresponds to 12:15, slot 22 to 12:00
@@ -138,7 +138,7 @@ def test_insulin_toggle_off_channels_and_masks_zero():
     (multimodal differs from glucose-only only when data is supplied).
     """
     dt = datetime(2026, 10, 27, 12, 0, 0)
-    x, mode = e1_service.preprocess(
+    x, mode, _inputs = e1_service.preprocess(
         VALID_24, dt,
         bolus_events=None,
         basal_events=None,
@@ -153,7 +153,7 @@ def test_insulin_toggle_on_empty_list():
     Insulin toggle on with an empty list -> mask 1 and zero values.
     """
     dt = datetime(2026, 10, 27, 12, 0, 0)
-    x, mode = e1_service.preprocess(
+    x, mode, _inputs = e1_service.preprocess(
         VALID_24, dt,
         bolus_events=[],
         basal_events=[],
@@ -175,7 +175,7 @@ def test_insulin_toggle_on_empty_list():
 def test_carbs_toggle_on_empty_list():
     """Carbs toggle on with empty list -> mask 1 and zero values."""
     dt = datetime(2026, 10, 27, 12, 0, 0)
-    x, mode = e1_service.preprocess(
+    x, mode, _inputs = e1_service.preprocess(
         VALID_24, dt,
         bolus_events=None,
         basal_events=None,
@@ -256,3 +256,4 @@ def test_validation_impossible_values(client):
     })
     assert res.status_code == 422
     assert res.json()["error"] == "InvalidCarbAmount"
+

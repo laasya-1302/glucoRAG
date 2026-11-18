@@ -10,11 +10,7 @@ from .models import (
     ForecastV1Request, ForecastV1Response, ModelsV1Response,
     InputSummary, HorizonSummary, ClinicalAlert
 )
-<<<<<<< HEAD
-from .validation import validate_input_sequence, validate_forecast_inputs
-=======
-from .validation import validate_input_sequence, validate_multimodal_events
->>>>>>> origin/main
+from .validation import validate_input_sequence, validate_forecast_inputs, validate_multimodal_events
 from .inference import engine
 from .services.e1_inference import e1_service
 from .services.model_registry import (
@@ -143,10 +139,6 @@ def forecast_v1(
     )
 
     try:
-<<<<<<< HEAD
-        insulin_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.insulin_events or [])] if payload.insulin_events is not None else None
-        carb_evs = [ev.model_dump() if hasattr(ev, "model_dump") else ev for ev in (payload.carb_events or [])] if payload.carb_events is not None else None
-=======
         # Resolve bolus events: bolus_events takes priority; fall back to insulin_events for backward compat
         raw_bolus = payload.bolus_events if payload.bolus_events is not None else payload.insulin_events
         raw_basal = payload.basal_events
@@ -159,24 +151,14 @@ def forecast_v1(
             carb_events=raw_carbs,
             latest_dt=latest_dt
         )
->>>>>>> origin/main
 
         raw_result = run_model_inference(
             model_id=model_id,
             readings=validated_readings,
             latest_dt=latest_dt,
-<<<<<<< HEAD
-            slot_dts=slot_dts,
-            bolus=payload.bolus,
-            basal=payload.basal,
-            carbs=payload.carbs,
-            insulin_events=insulin_evs,
-            carb_events=carb_evs
-=======
             bolus_events=validated_bolus,
             basal_events=validated_basal,
             carb_events=validated_carbs,
->>>>>>> origin/main
         )
 
         input_summary = InputSummary(
@@ -190,7 +172,7 @@ def forecast_v1(
         )
 
         forecast_steps = raw_result["forecast"]
-        
+
         # Horizons summary for +30m, +60m, +90m, +120m
         horizons_summary = {}
         forecast_30m = None
@@ -226,7 +208,6 @@ def forecast_v1(
                     risk_probabilities=r_prob
                 )
 
-<<<<<<< HEAD
         alert_obj = raw_result.get("clinical_alert")
         if not alert_obj:
             hypo_steps = [s for s in forecast_steps if (s.get("alert") if isinstance(s, dict) else s.alert) == "Possible low glucose"]
@@ -254,24 +235,20 @@ def forecast_v1(
         elif isinstance(alert_obj, dict):
             alert_obj = ClinicalAlert(**alert_obj)
 
-        resp = ForecastV1Response(
-=======
         # Use inputs_used from the model result (may be more precise than validation's)
         result_inputs_used = raw_result.get("inputs_used", inputs_used)
 
-        return ForecastV1Response(
->>>>>>> origin/main
+        resp = ForecastV1Response(
             status="success",
             model_id=raw_result["model_id"],
             model_name=raw_result["model_name"],
             mode=raw_result.get("mode", "cgm_only"),
-            inputs_used=raw_result.get("inputs_used", ["cgm"]),
+            inputs_used=result_inputs_used,
             units="mg/dL",
             forecast_origin=raw_result.get("forecast_origin", latest_dt.isoformat()),
             now_mgdl=raw_result.get("now_mgdl", float(validated_readings[-1])),
             checkpoint_sha256=raw_result.get("checkpoint_sha256"),
             input_summary=input_summary,
-            inputs_used=result_inputs_used,
             forecast_30m=forecast_30m,
             forecast_60m=forecast_60m,
             forecast_90m=forecast_90m,
@@ -290,9 +267,9 @@ def forecast_v1(
             inputs_data = {
                 "readings": validated_readings,
                 "latest_timestamp": latest_dt.isoformat(),
-                "bolus": payload.bolus,
-                "basal": payload.basal,
-                "carbs": payload.carbs,
+                "bolus_events": validated_bolus,
+                "basal_events": validated_basal,
+                "carb_events": validated_carbs,
                 "grid": payload.grid
             }
             results_data = {

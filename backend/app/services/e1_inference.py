@@ -1,11 +1,8 @@
 import os
 import sys
 import json
-<<<<<<< HEAD
 import hashlib
-=======
 import math
->>>>>>> origin/main
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, Any, Union
@@ -71,7 +68,6 @@ class GPBackbone(nn.Module):
 
     def forward(self, x):
         # x is (B, 24, 9)
-        # xe takes channels: glucose(0), bolus(3), basal(4), carb(5), m_bolus(6), m_basal(7), m_carb(8)
         xe = x[..., [0, 3, 4, 5, 6, 7, 8]]
         ang = torch.atan2(x[..., 1], x[..., 2])
         xm = torch.stack([torch.sin(ang), torch.cos(ang)], -1)
@@ -103,16 +99,7 @@ class Net(nn.Module):
 
 class E1InferenceService:
     """
-    Production service managing the 3-seed ensemble of E1 Multimodal GPFormer:
-    - s42, s123, s2026 checkpoints
-    - scalers_v1.json normalization
-    - frozen_eval_v1.json risk thresholds and uncertainty band calibration
-    - multimodal (CGM + insulin + carbs) and CGM-only inference
-
-    Three-state channel semantics:
-      - None   => channel NOT AVAILABLE (value=0, mask=0)
-      - []     => channel available, no events (value=0, mask=1)
-      - [...]  => channel available with events (values summed/carry-fwd, mask=1 where events exist)
+    Production service managing the 3-seed ensemble of E1 Multimodal GPFormer.
     """
     def __init__(self):
         os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -143,7 +130,7 @@ class E1InferenceService:
             ckpt_path = MODEL_V2_DIR / "runs" / f"E1_gpf_multi_pooled_{s}" / "best.pt"
             if not ckpt_path.exists():
                 raise FileNotFoundError(f"E1 checkpoint {s} not found at {ckpt_path}")
-            
+
             # Compute sha256
             h = hashlib.sha256()
             with open(ckpt_path, "rb") as bf:
@@ -161,17 +148,8 @@ class E1InferenceService:
 
         self._is_loaded = True
 
-<<<<<<< HEAD
     def warmup(self):
         """Warms up and verifies all 3 ensemble checkpoints are loaded."""
-        if not self._is_loaded:
-            self.load_artifacts()
-
-=======
-    # def is_ready(self) -> bool:
-    #     return self._is_loaded and len(self.models) == 3
-    def warmup(self):
-        """Ensure the E1 ensemble is loaded before serving requests."""
         if not self.is_ready():
             self.load_artifacts()
 
@@ -180,96 +158,48 @@ class E1InferenceService:
 
         print("[INFO] E1 Multimodal GPFormer 3-seed ensemble is ready.")
 
->>>>>>> origin/main
     def is_ready(self) -> bool:
         return self._is_loaded and len(self.models) == 3
-        
+
     def preprocess(
         self,
         readings: list[float],
-<<<<<<< HEAD
-        slot_dts: Union[list[datetime], datetime],
-        bolus: Optional[list[dict]] = None,
-        basal: Optional[Union[float, list[dict], dict]] = None,
-        carbs: Optional[list[dict]] = None,
-        insulin_events: Optional[list[dict]] = None,
-        carb_events: Optional[list[dict]] = None
-    ) -> tuple[np.ndarray, str, list[str]]:
-        """
-        Builds the (1, 24, 9) feature tensor using the exact model contract:
-        - 24 slots, 15 minutes apart, oldest -> newest (slot 23 is now).
-        - Channels:
-          0: glucose = (mg/dL - mean) / std
-          1: sin(2*pi*tod/1440)
-          2: cos(2*pi*tod/1440)
-          3: bolus = clip(units_in_slot / event_caps.bolus_u, 0, 3)
-          4: basal = clip(rate_U_per_h / event_caps.basal_uh, 0, 3)
-          5: carbs = clip(grams_in_slot / event_caps.carb_g, 0, 3)
-          6, 7, 8: availability masks for bolus, basal, carbs
-        - 3 states per input:
-          * None: not available (value 0, mask 0)
-          * []: available, none given (mask 1, value 0)
-          * list: available with events (mask 1, values assigned to slots)
-        - Slot mapping rule:
-          * Event at time t goes into FIRST slot where t_slot >= t (12:07 -> 12:15 slot, never 12:00)
-          * Events at latest reading go into last slot (23)
-          * Events > latest reading, or < t_0 - 15min, are rejected with ValueError
-          * Basal: latest rate record at or before each slot, valid up to 24h
-        - Mode:
-          * If bolus, basal, carbs are all None -> "cgm_only" (threshold key "E1_cgmonly")
-          * If any supplied -> "multimodal" (threshold key "E1")
-        """
-        if isinstance(slot_dts, datetime):
-            start_dt = slot_dts - timedelta(minutes=(IN_LEN - 1) * 15)
-            slot_dts = [start_dt + timedelta(minutes=i * 15) for i in range(IN_LEN)]
-
-        if bolus is None and basal is None and insulin_events:
-            bolus_list = []
-            basal_list = []
-            for ev in insulin_events:
-                t = ev.get("type", "bolus")
-                if t == "basal":
-                    basal_list.append(ev)
-                else:
-                    bolus_list.append(ev)
-            bolus = bolus_list
-            basal = basal_list if basal_list else None
-        if carbs is None and carb_events:
-            carbs = carb_events
-=======
         latest_dt: datetime,
         bolus_events: Optional[list[dict]] = None,
         basal_events: Optional[list[dict]] = None,
         carb_events: Optional[list[dict]] = None,
-        # Backward compat: insulin_events treated as bolus_events
         insulin_events: Optional[list[dict]] = None,
     ) -> tuple[np.ndarray, str, list[str]]:
         """
-        Builds the (1, 24, 9) feature tensor using the exact training-time preprocessing:
-        0: glucose (scaled by (g - mu) / sd)
-        1: sin_tod (sin of time-of-day in minutes)
-        2: cos_tod (cos of time-of-day in minutes)
-        3: bolus (clip(bolus / cap, 0, 3.0))
-        4: basal (clip(basal / cap, 0, 3.0)) - carry-forward logic
-        5: carb (clip(carb / cap, 0, 3.0))
-        6: m_bolus (1.0 if channel available, 0.0 if NOT AVAILABLE)
-        7: m_basal (1.0 if channel available, 0.0 if NOT AVAILABLE)
-        8: m_carb  (1.0 if channel available, 0.0 if NOT AVAILABLE)
+        Builds the (1, 24, 9) feature tensor using the exact training-time preprocessing.
+
+        Channels:
+          0: glucose (scaled by (g - mu) / sd)
+          1: sin_tod
+          2: cos_tod
+          3: bolus (clip(bolus / cap, 0, 3.0))
+          4: basal (clip(basal / cap, 0, 3.0)) - carry-forward logic
+          5: carb (clip(carb / cap, 0, 3.0))
+          6: m_bolus (1.0 if channel available, 0.0 if NOT AVAILABLE)
+          7: m_basal (1.0 if channel available, 0.0 if NOT AVAILABLE)
+          8: m_carb  (1.0 if channel available, 0.0 if NOT AVAILABLE)
 
         Three-state channel semantics:
           - None   => NOT AVAILABLE: value=0, mask=0
-          - []     => AVAILABLE, no events: value=0, mask=1 (all slots)
-          - [...]  => AVAILABLE with events: values filled, mask=1 where event present (or globally if available)
+          - []     => AVAILABLE, no events: value=0, mask=1
+          - [...]  => AVAILABLE with events: values filled, mask=1
         """
         # Backward compat: if only insulin_events is passed, treat it as bolus_events
         if bolus_events is None and insulin_events is not None:
             bolus_events = insulin_events
->>>>>>> origin/main
+
+        # Build slot datetimes from latest_dt
+        start_dt = latest_dt - timedelta(minutes=(IN_LEN - 1) * 15)
+        slot_dts = [start_dt + timedelta(minutes=i * 15) for i in range(IN_LEN)]
+        step_dts = slot_dts  # alias for clarity
 
         if len(readings) != IN_LEN:
             raise ValueError(f"E1 GPFormer requires exactly {IN_LEN} readings, got {len(readings)}.")
-        if len(slot_dts) != IN_LEN:
-            raise ValueError(f"E1 GPFormer requires exactly {IN_LEN} slot timestamps, got {len(slot_dts)}.")
 
         mu = self.scalers["glucose"]["mean"]
         sd = self.scalers["glucose"]["std"]
@@ -277,7 +207,6 @@ class E1InferenceService:
 
         t_first = slot_dts[0]
         t_last = slot_dts[-1]
-        earliest_allowed = t_first - timedelta(minutes=15)
 
         x = np.zeros((1, IN_LEN, N_FEAT), dtype=np.float32)
 
@@ -285,13 +214,26 @@ class E1InferenceService:
         g_arr = np.asarray(readings, dtype=np.float32)
         x[0, :, 0] = (g_arr - mu) / sd
 
-        # 1, 2: Sin & Cos Time of Day (tod = minutes since midnight)
+        # 1, 2: Sin & Cos Time of Day
         tod_minutes = np.array([dt.hour * 60.0 + dt.minute + dt.second / 60.0 for dt in slot_dts], dtype=np.float32)
         ang = tod_minutes / 1440.0 * 2 * np.pi
         x[0, :, 1] = np.sin(ang)
         x[0, :, 2] = np.cos(ang)
 
-<<<<<<< HEAD
+        slot_mapping = []
+        rejected_events = []
+
+        def find_bolus_bucket(event_dt: datetime) -> Optional[int]:
+            """
+            Find the slot for a bolus/carb event.
+            Ceil logic: event at 12:07 -> slot at 12:15 (first slot AT OR AFTER event time).
+            """
+            diff_mins = (event_dt - start_dt).total_seconds() / 60.0
+            idx = math.ceil(diff_mins / 15.0)
+            if 0 <= idx < IN_LEN:
+                return idx
+            return None
+
         def parse_dt(val: Any) -> datetime:
             if isinstance(val, datetime):
                 return val.replace(tzinfo=None)
@@ -300,185 +242,54 @@ class E1InferenceService:
                 s = s[:-1] + "+00:00"
             return datetime.fromisoformat(s).replace(tzinfo=None)
 
-        slot_mapping = []
-        rejected_events = []
-
-        def assign_slot(event_dt: datetime, ev_type: str, raw_ev: Any, amount: float, unit: str) -> int:
-            if event_dt > t_last:
-                err_msg = f"Event time {event_dt.isoformat()} is after latest reading time {t_last.isoformat()}."
-                rejected_events.append({"type": ev_type, "event": raw_ev, "reason": err_msg})
-                raise ValueError(err_msg)
-            if event_dt < earliest_allowed:
-                err_msg = f"Event time {event_dt.isoformat()} is earlier than input window boundary {earliest_allowed.isoformat()}."
-                rejected_events.append({"type": ev_type, "event": raw_ev, "reason": err_msg})
-                raise ValueError(err_msg)
-            for idx, s_dt in enumerate(slot_dts):
-                if s_dt >= event_dt:
-                    slot_mapping.append({
-                        "type": ev_type,
-                        "event_time": event_dt.isoformat(),
-                        "slot_index": idx,
-                        "slot_time": s_dt.isoformat(),
-                        "amount": amount,
-                        "unit": unit
-                    })
-                    return idx
-            slot_mapping.append({
-                "type": ev_type,
-                "event_time": event_dt.isoformat(),
-                "slot_index": 23,
-                "slot_time": slot_dts[23].isoformat(),
-                "amount": amount,
-                "unit": unit
-            })
-            return 23
-
-        inputs_used = ["cgm"]
-
-        # Bolus handling
-        if bolus is not None:
-            inputs_used.append("bolus")
-            x[0, :, 6] = 1.0 # m_bolus mask
-            raw_bolus = np.zeros(IN_LEN, dtype=np.float32)
-            for ev in bolus:
-                ev_dt = parse_dt(ev.get("time") or ev.get("timestamp"))
-                u = float(ev.get("units") if ev.get("units") is not None else ev.get("value", 0.0))
-                if u < 0.0:
-                    raise ValueError(f"Negative bolus amount: {u} U")
-                if u > 40.0:
-                    raise ValueError(f"Bolus amount exceeds maximum limit of 40 U: {u} U")
-                s_idx = assign_slot(ev_dt, "bolus", ev, u, "U")
-                raw_bolus[s_idx] += u
-            x[0, :, 3] = np.clip(raw_bolus / caps["bolus_u"], 0.0, EVENT_CLIP)
-
-        # Basal handling
-        if basal is not None:
-            inputs_used.append("basal")
-            raw_basal = np.zeros(IN_LEN, dtype=np.float32)
-            if isinstance(basal, (int, float)):
-                rate = float(basal)
-                if rate < 0.0 or rate > 5.0:
-                    raise ValueError(f"Basal rate must be between 0 and 5 U/h, got {rate}")
-                raw_basal[:] = rate
-                x[0, :, 7] = 1.0
-            elif isinstance(basal, list) and len(basal) == 0:
-                # Available with nothing given -> mask 1, values 0
-                x[0, :, 7] = 1.0
-            else:
-                # List or dict of rate records
-                records = basal if isinstance(basal, list) else [basal]
-                parsed_recs = []
-                for rec in records:
-                    rate = float(rec.get("rate") if rec.get("rate") is not None else rec.get("value", 0.0))
-                    if rate < 0.0 or rate > 5.0:
-                        raise ValueError(f"Basal rate must be between 0 and 5 U/h, got {rate}")
-                    st_str = rec.get("start") or rec.get("started_at") or rec.get("timestamp")
-                    start_dt = parse_dt(st_str) if st_str else (t_last - timedelta(hours=6))
-                    end_str = rec.get("end") or rec.get("ended_at")
-                    end_dt = parse_dt(end_str) if end_str else None
-                    parsed_recs.append((start_dt, end_dt, rate))
-
-                # For each slot, find latest basal record at or before that slot, valid up to 24h
-                for idx, s_dt in enumerate(slot_dts):
-                    valid_match = None
-                    for st_dt, end_dt, rate in parsed_recs:
-                        if st_dt <= s_dt:
-                            if end_dt is None or s_dt <= end_dt:
-                                if (s_dt - st_dt) <= timedelta(hours=24):
-                                    if valid_match is None or st_dt > valid_match[0]:
-                                        valid_match = (st_dt, rate)
-                    if valid_match is not None:
-                        raw_basal[idx] = valid_match[1]
-                        x[0, idx, 7] = 1.0 # m_basal mask = 1
-                    else:
-                        raw_basal[idx] = 0.0
-                        x[0, idx, 7] = 0.0 # m_basal mask = 0 if none
-            x[0, :, 4] = np.clip(raw_basal / caps["basal_uh"], 0.0, EVENT_CLIP)
-
-        # Carbs handling
-        if carbs is not None:
-            inputs_used.append("carbs")
-            x[0, :, 8] = 1.0 # m_carb mask
-            raw_carbs = np.zeros(IN_LEN, dtype=np.float32)
-            for ev in carbs:
-                ev_dt = parse_dt(ev.get("time") or ev.get("timestamp"))
-                g = float(ev.get("carbs") if ev.get("carbs") is not None else (ev.get("grams") if ev.get("grams") is not None else ev.get("value", 0.0)))
-                if g < 0.0:
-                    raise ValueError(f"Negative carbohydrate amount: {g} g")
-                if g > 370.0:
-                    raise ValueError(f"Carbohydrate amount exceeds maximum limit of 370 g: {g} g")
-                s_idx = assign_slot(ev_dt, "carbs", ev, g, "g")
-                raw_carbs[s_idx] += g
-            x[0, :, 5] = np.clip(raw_carbs / caps["carb_g"], 0.0, EVENT_CLIP)
-
-        if bolus is None and basal is None and carbs is None:
-            mode = "cgm_only"
-        else:
-            mode = "multimodal"
-=======
-        def find_bolus_bucket(event_dt: datetime) -> Optional[int]:
-            """
-            Find the slot for a bolus/carb event.
-            Uses ceil logic: event at 12:07 -> slot at 12:15 (first slot AT OR AFTER event time).
-            Equivalent to: idx = ceil(diff_mins / 15)
-            """
-            diff_mins = (event_dt - start_dt).total_seconds() / 60.0
-            idx = math.ceil(diff_mins / 15.0)
-            if 0 <= idx < IN_LEN:
-                return idx
-            return None
+        inputs_used = ["glucose", "time"]
 
         # --- Bolus channel (3) and m_bolus mask (6) ---
         if bolus_events is None:
-            # NOT AVAILABLE: value=0, mask=0 (already zero from np.zeros)
-            pass
+            pass  # NOT AVAILABLE: value=0, mask=0
         else:
-            # AVAILABLE: set mask=1 for all slots initially; then overwrite with event values
             x[0, :, 6] = 1.0  # m_bolus = 1 for all slots (channel available)
+            inputs_used.append("bolus")
             for ev in bolus_events:
                 try:
-                    ts_str = ev.get("timestamp")
+                    ts_str = ev.get("timestamp") or ev.get("time")
                     if not ts_str:
                         continue
-                    edt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                    edt = parse_dt(ts_str)
                     b_idx = find_bolus_bucket(edt)
                     if b_idx is not None:
-                        units = float(ev.get("units", ev.get("value", 0.0)))
-                        x[0, b_idx, 3] += units
+                        u = float(ev.get("units", ev.get("value", 0.0)))
+                        x[0, b_idx, 3] += u
+                        slot_mapping.append({
+                            "type": "bolus", "event_time": edt.isoformat(),
+                            "slot_index": b_idx, "amount": u, "unit": "U"
+                        })
                 except Exception:
                     continue
-            # Scale and clip bolus channel
             x[0, :, 3] = np.clip(x[0, :, 3] / caps["bolus_u"], 0.0, EVENT_CLIP)
 
         # --- Basal channel (4) and m_basal mask (7) with carry-forward logic ---
         if basal_events is None:
-            # NOT AVAILABLE: value=0, mask=0 (already zero from np.zeros)
-            pass
+            pass  # NOT AVAILABLE: value=0, mask=0
         else:
-            # AVAILABLE: set mask=1 for all slots initially
-            x[0, :, 7] = 1.0  # m_basal = 1 for all slots (channel available)
+            x[0, :, 7] = 1.0  # m_basal = 1 (channel available)
+            inputs_used.append("basal")
             if basal_events:
-                # Parse all basal events into (datetime, rate) tuples
                 parsed_basal = []
                 for ev in basal_events:
                     try:
-                        ts_str = ev.get("timestamp")
+                        ts_str = ev.get("timestamp") or ev.get("start") or ev.get("started_at")
                         if not ts_str:
                             continue
-                        edt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                        edt = parse_dt(ts_str)
                         rate = float(ev.get("rate", 0.0))
                         parsed_basal.append((edt, rate))
                     except Exception:
                         continue
 
-                # Sort by time
                 parsed_basal.sort(key=lambda t: t[0])
-
-                # Carry-forward: for each slot, find the latest basal event at or before slot time
-                # Also check events up to 24h before the window start
                 cutoff = start_dt - timedelta(hours=24)
                 for i, slot_dt in enumerate(step_dts):
-                    # Find the latest event with edt <= slot_dt and edt >= cutoff
                     best_rate = None
                     for edt, rate in parsed_basal:
                         if edt <= slot_dt and edt >= cutoff:
@@ -488,44 +299,34 @@ class E1InferenceService:
                     if best_rate is not None:
                         x[0, i, 4] = best_rate
 
-                # Scale and clip basal channel
                 x[0, :, 4] = np.clip(x[0, :, 4] / caps["basal_uh"], 0.0, EVENT_CLIP)
 
         # --- Carb channel (5) and m_carb mask (8) ---
         if carb_events is None:
-            # NOT AVAILABLE: value=0, mask=0 (already zero from np.zeros)
-            pass
+            pass  # NOT AVAILABLE: value=0, mask=0
         else:
-            # AVAILABLE: set mask=1 for all slots initially
-            x[0, :, 8] = 1.0  # m_carb = 1 for all slots (channel available)
+            x[0, :, 8] = 1.0  # m_carb = 1 (channel available)
+            inputs_used.append("carbs")
             for ev in carb_events:
                 try:
-                    ts_str = ev.get("timestamp")
+                    ts_str = ev.get("timestamp") or ev.get("time")
                     if not ts_str:
                         continue
-                    edt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                    edt = parse_dt(ts_str)
                     b_idx = find_bolus_bucket(edt)
                     if b_idx is not None:
-                        carbs = float(ev.get("carbs", ev.get("grams", ev.get("value", 0.0))))
-                        x[0, b_idx, 5] += carbs
+                        g = float(ev.get("carbs", ev.get("grams", ev.get("value", 0.0))))
+                        x[0, b_idx, 5] += g
+                        slot_mapping.append({
+                            "type": "carbs", "event_time": edt.isoformat(),
+                            "slot_index": b_idx, "amount": g, "unit": "g"
+                        })
                 except Exception:
                     continue
-            # Scale and clip carb channel
             x[0, :, 5] = np.clip(x[0, :, 5] / caps["carb_g"], 0.0, EVENT_CLIP)
 
-        # Determine mode
         any_available = (bolus_events is not None or basal_events is not None or carb_events is not None)
         mode = "E1" if any_available else "E1_cgmonly"
-
-        # Build inputs_used list
-        inputs_used = ["glucose", "time"]
-        if bolus_events is not None:
-            inputs_used.append("bolus")
-        if basal_events is not None:
-            inputs_used.append("basal")
-        if carb_events is not None:
-            inputs_used.append("carbs")
->>>>>>> origin/main
 
         inspector_data = {
             "channel_sums": {
@@ -549,76 +350,30 @@ class E1InferenceService:
         self,
         readings: list[float],
         latest_dt: datetime,
-<<<<<<< HEAD
-        slot_dts: Optional[list[datetime]] = None,
-        bolus: Optional[list[dict]] = None,
-        basal: Optional[Union[float, list[dict], dict]] = None,
-        carbs: Optional[list[dict]] = None,
-=======
         bolus_events: Optional[list[dict]] = None,
         basal_events: Optional[list[dict]] = None,
         carb_events: Optional[list[dict]] = None,
-        # Backward compat: insulin_events treated as bolus_events
->>>>>>> origin/main
         insulin_events: Optional[list[dict]] = None,
     ) -> dict[str, Any]:
         """
         Executes the 3-model ensemble inference and applies frozen calibration.
-
-        Three-state channel semantics for bolus_events, basal_events, carb_events:
-          - None   => NOT AVAILABLE (value=0, mask=0)
-          - []     => AVAILABLE, no events (value=0, mask=1 for all slots)
-          - [...]  => AVAILABLE with events
         """
-<<<<<<< HEAD
-        if bolus is None and basal is None and insulin_events:
-            bolus_list = []
-            basal_list = []
-            for ev in insulin_events:
-                t = ev.get("type", "bolus")
-                if t == "basal":
-                    basal_list.append(ev)
-                else:
-                    bolus_list.append(ev)
-            bolus = bolus_list
-            basal = basal_list if basal_list else None
-        if carbs is None and carb_events:
-            carbs = carb_events
-
-        if slot_dts is None:
-            start_dt = latest_dt - timedelta(minutes=(IN_LEN - 1) * 15)
-            slot_dts = [start_dt + timedelta(minutes=i * 15) for i in range(IN_LEN)]
+        # Backward compat
+        if bolus_events is None and insulin_events is not None:
+            bolus_events = insulin_events
 
         prep_res = self.preprocess(
             readings=readings,
-            slot_dts=slot_dts,
-            bolus=bolus,
-            basal=basal,
-            carbs=carbs
+            latest_dt=latest_dt,
+            bolus_events=bolus_events,
+            basal_events=basal_events,
+            carb_events=carb_events,
         )
         x_np = prep_res.x if hasattr(prep_res, "x") else prep_res[0]
         mode = prep_res.mode if hasattr(prep_res, "mode") else prep_res[1]
         inputs_used = prep_res.inputs_used if hasattr(prep_res, "inputs_used") else prep_res[2]
         inspector_data = getattr(prep_res, "inspector", {})
-=======
-        # Backward compat
-        if bolus_events is None and insulin_events is not None:
-            bolus_events = insulin_events
 
-        x_np, mode = self.preprocess(
-            readings, latest_dt,
-            bolus_events=bolus_events,
-            basal_events=basal_events,
-            carb_events=carb_events
-        )
-        inputs_used = ["glucose", "time"]
-        if bolus_events is not None:
-            inputs_used.append("bolus")
-        if basal_events is not None:
-            inputs_used.append("basal")
-        if carb_events is not None:
-            inputs_used.append("carbs")
->>>>>>> origin/main
         x_tensor = torch.from_numpy(x_np).to(self.device)
 
         q_list = []
@@ -629,18 +384,17 @@ class E1InferenceService:
 
         for s, model in self.models.items():
             q_norm, logits = model(x_tensor)
-            # Unscale quantiles: q * sd + mu
             q_mgdl = q_norm * sd + mu
             probs = torch.softmax(logits, dim=-1)
-            q_list.append(q_mgdl.squeeze(0).cpu().numpy()) # (8, 5)
-            p_list.append(probs.squeeze(0).cpu().numpy())  # (8, 3)
+            q_list.append(q_mgdl.squeeze(0).cpu().numpy())
+            p_list.append(probs.squeeze(0).cpu().numpy())
 
         # 3-Seed Ensemble Average
-        q_ens = np.mean(q_list, axis=0) # (8, 5)
-        p_ens = np.mean(p_list, axis=0) # (8, 3)
+        q_ens = np.mean(q_list, axis=0)  # (8, 5)
+        p_ens = np.mean(p_list, axis=0)  # (8, 3)
 
         # Calibration lookup from frozen_eval_v1.json
-        calib_key = "E1_cgmonly" if mode == "cgm_only" else "E1"
+        calib_key = "E1_cgmonly" if mode in ("cgm_only", "E1_cgmonly") else "E1"
         calib_dict = self.frozen_eval.get(calib_key, self.frozen_eval.get("E1_cgmonly", {}))
 
         forecast_steps = []
@@ -671,8 +425,6 @@ class E1InferenceService:
                     "hyper": round(hyper_thr, 4)
                 }
             else:
-                # Intermediate horizons (+15, +45, +75, +105) are NOT validated:
-                # Use nearest shift for display band, but NO alert thresholds and NO alert
                 if horizon_mins < 30:
                     ref = calib_dict.get("30", {})
                 elif horizon_mins < 60:
@@ -681,7 +433,7 @@ class E1InferenceService:
                     ref = calib_dict.get("90", calib_dict.get("60", {}))
                 else:
                     ref = calib_dict.get("120", calib_dict.get("90", {}))
-                
+
                 lo_shift = float(ref.get("band", {}).get("lo_shift", 0.0))
                 hi_shift = float(ref.get("band", {}).get("hi_shift", 0.0))
                 hypo_thr = None
@@ -697,8 +449,6 @@ class E1InferenceService:
             normal_prob = float(p_vals[1])
             hyper_prob = float(p_vals[2])
 
-            # 1. Forecast class derived STRICTLY from MEDIAN:
-            # low < 70, normal 70-180 inclusive, high > 180
             if med < 70.0:
                 f_class = "low"
                 p_risk = "HYPO"
@@ -709,7 +459,6 @@ class E1InferenceService:
                 f_class = "high"
                 p_risk = "HYPER"
 
-            # 2. Separate alert derived ONLY from frozen thresholds on validated horizons:
             if is_validated and hypo_thr is not None and hyper_thr is not None:
                 if hypo_prob >= hypo_thr:
                     alert = "Possible low glucose"
@@ -725,7 +474,7 @@ class E1InferenceService:
                 "horizon_minutes": horizon_mins,
                 "timestamp": step_dt.isoformat(),
                 "median": round(med, 1),
-                "glucose_median": round(med, 1), # backward compatibility
+                "glucose_median": round(med, 1),
                 "lo": calib_lo,
                 "hi": calib_hi,
                 "quantiles": {
@@ -749,7 +498,7 @@ class E1InferenceService:
                     "hyper": round(hyper_prob, 4)
                 },
                 "forecast_class": f_class,
-                "predicted_risk_class": p_risk, # backward compatibility
+                "predicted_risk_class": p_risk,
                 "alert": alert,
                 "calibrated_thresholds": calib_thresholds,
                 "is_validated": is_validated
@@ -781,11 +530,8 @@ class E1InferenceService:
         return {
             "mode": mode,
             "inputs_used": inputs_used,
-<<<<<<< HEAD
             "forecast_origin": forecast_origin,
             "now_mgdl": now_mgdl,
-=======
->>>>>>> origin/main
             "forecast": forecast_steps,
             "clinical_alert": overall_alert,
             "inspector": inspector_data,

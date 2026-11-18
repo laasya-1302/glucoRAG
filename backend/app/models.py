@@ -64,10 +64,6 @@ class ForecastV1Request(BaseModel):
     carbs: Optional[list[Any]] = Field(None, description="Carb events list, empty list for available none, null for unavailable")
     grid: Optional[Literal["manual", "clock"]] = Field("manual", description="'manual' (own timestamps) or 'clock' (resampled)")
     latest_timestamp: Optional[str] = Field(None, description="ISO 8601 timestamp for the 24th reading")
-<<<<<<< HEAD
-    insulin_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(None)
-    carb_events: Optional[list[Union[dict, CarbEventItem]]] = Field(None)
-=======
     # Backward-compat alias: insulin_events treated as bolus_events
     insulin_events: Optional[list[Union[dict, InsulinEventItem]]] = Field(
         default=None,
@@ -85,7 +81,6 @@ class ForecastV1Request(BaseModel):
         default=None,
         description="Carbohydrate events. None = not available, [] = available with no events."
     )
->>>>>>> origin/main
 
 class QuantileDict(BaseModel):
     q10: float
@@ -163,13 +158,12 @@ class ForecastV1Response(BaseModel):
     model_id: str
     model_name: str
     mode: str
-    inputs_used: Optional[list[str]] = Field(default_factory=lambda: ["cgm"])
+    inputs_used: list[str] = Field(default_factory=list, description="List of input channels used (e.g. ['glucose','time','bolus','carbs'])")
     units: str = "mg/dL"
     forecast_origin: Optional[str] = None
     now_mgdl: Optional[float] = None
     checkpoint_sha256: Optional[dict[str, str]] = None
     input_summary: InputSummary
-    inputs_used: list[str] = Field(default_factory=list, description="List of input channels used (e.g. ['glucose','time','bolus','carbs'])")
     forecast_30m: Optional[float] = None
     forecast_60m: Optional[float] = None
     forecast_90m: Optional[float] = None

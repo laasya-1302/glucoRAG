@@ -1,10 +1,6 @@
 import math
 from typing import Any, Optional
-<<<<<<< HEAD
 from datetime import datetime, timedelta
-=======
-from datetime import datetime
->>>>>>> origin/main
 from fastapi import HTTPException
 from .config import settings
 
@@ -31,10 +27,7 @@ def validate_forecast_inputs(
     units: str = "mg/dL"
 ) -> tuple[list[float], datetime, list[datetime]]:
     """
-    Validates glucose sequence under 'manual' or 'clock' grid modes:
-    - 'manual': exactly 24 readings 15 minutes apart. Uses individual timestamps if supplied, else computed from latest_dt.
-    - 'clock': streamed data resampled to 15-minute clock marks (nearest reading within +/-2.5 min, never filled).
-      Requires 24 consecutive slots, else raises 422 'Collecting data: N of 24 readings'.
+    Validates glucose sequence under 'manual' or 'clock' grid modes.
     """
     if not isinstance(readings, list):
         raise HTTPException(
@@ -54,7 +47,6 @@ def validate_forecast_inputs(
 
     # 1. Clock Grid Mode
     if grid.lower() == "clock":
-        # Extract all reading items with timestamp and numeric value
         extracted_stream: list[tuple[datetime, float]] = []
         for idx, item in enumerate(readings):
             g_val = None
@@ -83,14 +75,12 @@ def validate_forecast_inputs(
         else:
             ref_dt = datetime.now()
 
-        # Build 24 clock marks: rounded to nearest 15m ending at ref_dt
         minute_round = (ref_dt.minute // 15) * 15
         clock_end = ref_dt.replace(minute=minute_round, second=0, microsecond=0)
         clock_marks = [clock_end - timedelta(minutes=(23 - i) * 15) for i in range(24)]
 
         resampled_readings: list[float] = []
         for mark in clock_marks:
-            # Find nearest reading within +/- 2.5 minutes
             best_val = None
             best_diff = None
             for dt_obj, val in extracted_stream:
@@ -231,9 +221,8 @@ def validate_forecast_inputs(
         start_dt = parsed_dt - timedelta(minutes=(settings.INPUT_STEPS - 1) * 15)
         slot_dts = [start_dt + timedelta(minutes=i * 15) for i in range(settings.INPUT_STEPS)]
 
-<<<<<<< HEAD
     return validated_readings, parsed_dt, slot_dts
-=======
+
 
 def _parse_event_timestamp(ts_str: str) -> datetime:
     """Parse an ISO 8601 timestamp string to a naive datetime."""
@@ -253,15 +242,10 @@ def validate_multimodal_events(
       - None   => channel NOT AVAILABLE
       - []     => channel available, no events
       - [...]  => channel available with events
-
-    Returns:
-        (validated_bolus, validated_basal, validated_carbs, inputs_used, mode)
     """
-    # Strip timezone for naive comparison
     latest_naive = latest_dt.replace(tzinfo=None) if latest_dt.tzinfo else latest_dt
 
     def _coerce_list(events):
-        """Convert Pydantic models in list to plain dicts."""
         if events is None:
             return None
         return [ev.model_dump() if hasattr(ev, "model_dump") else dict(ev) for ev in events]
@@ -270,7 +254,6 @@ def validate_multimodal_events(
     basal_events = _coerce_list(basal_events)
     carb_events = _coerce_list(carb_events)
 
-    # Validate bolus events
     validated_bolus = None
     if bolus_events is not None:
         validated_bolus = []
@@ -283,31 +266,21 @@ def validate_multimodal_events(
             except (ValueError, TypeError) as e:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "InvalidEventTimestamp",
-                        "message": f"Could not parse bolus event timestamp '{ts_str}': {e}"
-                    }
+                    detail={"error": "InvalidEventTimestamp", "message": f"Could not parse bolus event timestamp '{ts_str}': {e}"}
                 )
             if edt > latest_naive:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "FutureDatedEvent",
-                        "message": f"Bolus event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."
-                    }
+                    detail={"error": "FutureDatedEvent", "message": f"Bolus event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."}
                 )
             units = float(ev.get("units", ev.get("value", 0.0)))
             if units < 0 or units > 40:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "InvalidBolusUnits",
-                        "message": f"Bolus units {units} is outside the valid range [0, 40] U."
-                    }
+                    detail={"error": "InvalidBolusUnits", "message": f"Bolus units {units} is outside the valid range [0, 40] U."}
                 )
             validated_bolus.append({**ev, "units": units})
 
-    # Validate basal events
     validated_basal = None
     if basal_events is not None:
         validated_basal = []
@@ -320,31 +293,21 @@ def validate_multimodal_events(
             except (ValueError, TypeError) as e:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "InvalidEventTimestamp",
-                        "message": f"Could not parse basal event timestamp '{ts_str}': {e}"
-                    }
+                    detail={"error": "InvalidEventTimestamp", "message": f"Could not parse basal event timestamp '{ts_str}': {e}"}
                 )
             if edt > latest_naive:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "FutureDatedEvent",
-                        "message": f"Basal event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."
-                    }
+                    detail={"error": "FutureDatedEvent", "message": f"Basal event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."}
                 )
             rate = float(ev.get("rate", 0.0))
             if rate < 0 or rate > 5:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "InvalidBasalRate",
-                        "message": f"Basal rate {rate} U/h is outside the valid range [0, 5] U/h."
-                    }
+                    detail={"error": "InvalidBasalRate", "message": f"Basal rate {rate} U/h is outside the valid range [0, 5] U/h."}
                 )
             validated_basal.append({**ev, "rate": rate})
 
-    # Validate carb events
     validated_carbs = None
     if carb_events is not None:
         validated_carbs = []
@@ -357,31 +320,21 @@ def validate_multimodal_events(
             except (ValueError, TypeError) as e:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "InvalidEventTimestamp",
-                        "message": f"Could not parse carb event timestamp '{ts_str}': {e}"
-                    }
+                    detail={"error": "InvalidEventTimestamp", "message": f"Could not parse carb event timestamp '{ts_str}': {e}"}
                 )
             if edt > latest_naive:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "FutureDatedEvent",
-                        "message": f"Carb event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."
-                    }
+                    detail={"error": "FutureDatedEvent", "message": f"Carb event timestamp '{ts_str}' is after the latest glucose reading time '{latest_naive.isoformat()}'."}
                 )
             carbs = float(ev.get("carbs", ev.get("grams", ev.get("value", 0.0))))
             if carbs < 0 or carbs > 370:
                 raise HTTPException(
                     status_code=422,
-                    detail={
-                        "error": "InvalidCarbAmount",
-                        "message": f"Carb amount {carbs} g is outside the valid range [0, 370] g."
-                    }
+                    detail={"error": "InvalidCarbAmount", "message": f"Carb amount {carbs} g is outside the valid range [0, 370] g."}
                 )
             validated_carbs.append({**ev, "carbs": carbs})
 
-    # Determine mode and inputs_used
     any_events = (validated_bolus is not None or validated_basal is not None or validated_carbs is not None)
     mode = "E1" if any_events else "E1_cgmonly"
 
@@ -394,4 +347,3 @@ def validate_multimodal_events(
         inputs_used.append("carbs")
 
     return validated_bolus, validated_basal, validated_carbs, inputs_used, mode
->>>>>>> origin/main

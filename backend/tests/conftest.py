@@ -73,7 +73,14 @@ class DirectTestClient:
                     req = ForecastV1Request(**payload)
                 except ValidationError as ve:
                     return MockResponse(422, {"error": "ValidationError", "detail": ve.errors()})
-                res = forecast_v1(req)
+                from app.db.database import UserRecord
+                mock_user = UserRecord(
+                    id="test-user", provider="mock", provider_sub="mock-sub",
+                    email="test@example.com", name="Test User", age=30,
+                    gender=None, minor_confirmed=False,
+                    consent_timestamp="2026-01-01T00:00:00", created_at="2026-01-01T00:00:00"
+                )
+                res = forecast_v1(req, user=mock_user)
                 return MockResponse(200, res.model_dump())
             elif clean_url == "/predict":
                 try:
